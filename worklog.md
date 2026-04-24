@@ -28,3 +28,30 @@ Stage Summary:
 - Visual indicator shows pending changes status (amber=changes pending, green=up to date)
 - Header badges always show latest values
 - No automatic reactivity for the main dashboard numbers
+
+---
+Task ID: 1
+Agent: main
+Task: Fix feed inventory missing phases + redesign vaccination calendar to be fully editable
+
+Work Log:
+- Read and analyzed operations-panel.tsx to understand current feed inventory (3 phases: Postura, Crecimiento, Pre-Inicio) and vaccination calendar (static table, not editable inline)
+- Identified missing phases: Inicio and Pre-Postura were not in the feed inventory
+- Rewrote operations-panel.tsx with:
+  1. Feed inventory: Added ALL 5 phases (Pre-Inicio, Inicio, Crecimiento, Pre-Postura, Postura) with auto-sync from config prices
+  2. Feed inventory: Added columns for Semanas, Precio/qq, Aves en fase, Costo/mes estimado
+  3. Feed inventory: Migration logic to merge existing localStorage data with missing phases
+  4. Feed inventory: Summary bar with total stock, active phases, daily consumption, alerts count
+  5. Vaccination calendar: Complete CRUD - add, edit inline, delete, mark as applied
+  6. Vaccination calendar: Per-batch, shed, cycle tracking with new fields (via, dosage, lotNumber, cycleNumber, shedId)
+  7. Vaccination calendar: Filters by batch, status, shed
+  8. Vaccination calendar: Generate default WD80 plan per batch
+  9. Vaccination calendar: Copy plan from one batch to another
+  10. Vaccination calendar: Batch summary cards showing applied/programmed counts
+  11. Vaccination calendar: localStorage persistence for both feed inventory and vaccinations
+- Build verified: compiled successfully
+
+Stage Summary:
+- operations-panel.tsx completely rewritten with full 5-phase feed inventory and editable vaccination calendar
+- Feed inventory now auto-syncs prices from config and shows all Sanut phases
+- Vaccination calendar supports per-batch/shed/cycle customization with inline editing
