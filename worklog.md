@@ -33,3 +33,25 @@ Stage Summary:
 - Produced: Manual_Operativo_Estrategia_C_WD80.pdf (767.7 KB, 20 pages)
 - Key metrics: ROI 224.1%, break-even Month 19, RD$15.6M net benefit, 8 replacements over 60 months
 - Document includes month-by-month operational instructions, financial tables, vaccination schedule, feed protocols, KPIs
+---
+Task ID: 2
+Agent: Main Agent
+Task: Crear sistema web de calculadora de gastos e ingresos para Granja Gallinas WD80
+
+Work Log:
+- Initialized Next.js 16 fullstack dev environment
+- Built comprehensive farm financial calculator with 4 tabs:
+  - Calculadora: Input prices (eggs, feed, fixed costs), real-time calculations
+  - Lotes: Batch/galpon configuration with phase tracking (5 phases)
+  - Detalle: Per-batch breakdown, expense charts, monthly summary
+  - Historial: Save monthly records with notes for tracking
+- Used shadcn/ui components (Card, Tabs, Input, Table, Badge, Alert)
+- Implemented real-time calculation of: egg revenue, feed costs, net profit, profit margin, feed/expense ratio
+- Default values pre-loaded from Strategy C financial model
+- Responsive design with mobile-first approach
+- Lint passed (only pre-existing download/ file warnings)
+
+Stage Summary:
+- Produced: Next.js web app at / (src/app/page.tsx)
+- Features: Real-time calculator, batch management, expense breakdown, monthly history
+- Default values: Egg RD$5.50, Feed RD$1,500/qq, Fixed costs RD$85,000, 4 batches x 2,000 hens
