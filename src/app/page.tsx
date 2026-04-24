@@ -921,8 +921,8 @@ export default function Home() {
                           {PHASE_KEYS.map(key => {
                             const feed = config.feedPhases[key]
                             const defFeed = DEFAULT_FEED[key]
-                            const monthlyCost = (config.hensPerBatch * feed.consumption * 30 * feed.price) / 100
-                            const defMonthlyCost = (DEFAULT_CONFIG.hensPerBatch * defFeed.consumption * 30 * defFeed.price) / 100
+                            const monthlyCost = (config.hensPerBatch * feed.consumption * 30 * feed.price) / 100000
+                            const defMonthlyCost = (DEFAULT_CONFIG.hensPerBatch * defFeed.consumption * 30 * defFeed.price) / 100000
                             const isPriceChanged = feed.price !== defFeed.price
                             return (
                               <TableRow key={key} className={`group ${isPriceChanged ? 'bg-amber-50/50' : ''}`}>
@@ -1422,7 +1422,7 @@ export default function Home() {
                 <div className="space-y-4">
                   {batches.map((batch) => {
                     const feed = config.feedPhases[batch.phase]
-                    const monthlyFeedCost = (batch.hens * feed.consumption * 30 * feed.price) / 100
+                    const monthlyFeedCost = (batch.hens * feed.consumption * 30 * feed.price) / 100000
                     const eggsPerMonth = batch.isLaying ? Math.round(batch.hens * (batch.layingRate / 100) * 30) : 0
                     const eggRevenue = eggsPerMonth * config.eggPrice
                     return (
@@ -1675,7 +1675,7 @@ export default function Home() {
                 <AlertDescription className="text-[11px]">
                   <strong>Referencia rapida:</strong> Con {fmtRD(config.eggPrice)}/huevo y feed {fmtRD(config.feedPhases.postura.price)}/qq,
                   cada lote de {fmtNum(config.hensPerBatch)} aves al {config.baseLayingRate}% genera <strong>{fmtRD(config.hensPerBatch * (config.baseLayingRate / 100) * 30 * config.eggPrice)}</strong> en huevos
-                  y consume <strong>{fmtRD(config.hensPerBatch * config.feedPhases.postura.consumption * 30 * config.feedPhases.postura.price / 100)}</strong> en alimento.
+                  y consume <strong>{fmtRD(config.hensPerBatch * config.feedPhases.postura.consumption * 30 * config.feedPhases.postura.price / 100000)}</strong> en alimento.
                   Costo por huevo: <strong>{fmtRD(calculations.costPerEgg)}</strong> vs precio venta {fmtRD(config.eggPrice)}.
                 </AlertDescription>
               </Alert>
@@ -1698,7 +1698,7 @@ export default function Home() {
                     {/* KPI Cards */}
                     {[
                       { label: 'Ingreso por Lote (Postura)', value: fmtRD(config.hensPerBatch * (config.baseLayingRate / 100) * 30 * config.eggPrice), sub: `${fmtNum(config.hensPerBatch)} aves x ${config.baseLayingRate}%`, color: 'text-green-700', icon: <Egg className="w-4 h-4" /> },
-                      { label: 'Gasto Feed por Lote (Postura)', value: fmtRD(config.hensPerBatch * config.feedPhases.postura.consumption * 30 * config.feedPhases.postura.price / 100), sub: `${config.feedPhases.postura.consumption}g x ${fmtRD(config.feedPhases.postura.price)}/qq`, color: 'text-red-600', icon: <Wheat className="w-4 h-4" /> },
+                      { label: 'Gasto Feed por Lote (Postura)', value: fmtRD(config.hensPerBatch * config.feedPhases.postura.consumption * 30 * config.feedPhases.postura.price / 100000), sub: `${config.feedPhases.postura.consumption}g x ${fmtRD(config.feedPhases.postura.price)}/qq`, color: 'text-red-600', icon: <Wheat className="w-4 h-4" /> },
                       { label: 'Costo por Huevo Producido', value: fmtRD(calculations.costPerEgg), sub: `Venta: ${fmtRD(config.eggPrice)} | Ganancia: ${fmtRD(config.eggPrice - calculations.costPerEgg)}`, color: calculations.costPerEgg < config.eggPrice ? 'text-green-700' : 'text-red-600', icon: <Target className="w-4 h-4" /> },
                       { label: 'Feed / Gasto Total', value: fmtPct(calculations.feedPercentage), sub: fmtRD(calculations.totalFeedCost) + ' de ' + fmtRD(calculations.totalExpenses), color: 'text-amber-700', icon: <PieChart className="w-4 h-4" /> },
                       { label: 'RD$ Ingreso por RD$ Feed', value: 'x' + calculations.revenuePerFeedRD.toFixed(2), sub: calculations.revenuePerFeedRD >= 2 ? 'Eficiencia buena' : 'Revisar precio feed', color: calculations.revenuePerFeedRD >= 2 ? 'text-green-700' : 'text-red-600', icon: <TrendingUp className="w-4 h-4" /> },
