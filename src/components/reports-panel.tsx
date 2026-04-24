@@ -124,9 +124,7 @@ function ReportHeader({ title, subtitle, icon }: { title: string; subtitle: stri
     <div className="print:mb-4 mb-2 pb-3 border-b-2 border-stone-300 print:border-b-black">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center print:bg-amber-500">
-            <span className="text-white text-lg font-bold">G</span>
-          </div>
+          <img src="/logo.jpg" alt="Granja Nidal" className="w-10 h-10 rounded-xl object-cover" />
           <div>
             <h1 className="text-base font-bold text-stone-900 print:text-base">{title}</h1>
             <p className="text-xs text-stone-500 print:text-xs">{subtitle}</p>
