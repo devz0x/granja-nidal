@@ -59,6 +59,8 @@ import {
   ClipboardCheck,
   FileOutput,
   RefreshCw,
+  Eye,
+  Printer,
 } from 'lucide-react'
 
 // ================================================================
@@ -375,6 +377,7 @@ export default function Home() {
     return DEFAULT_STRUCTURAL_EXPENSES
   })
   const [notes, setNotes] = useState('')
+  const [expandedRecord, setExpandedRecord] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('config')
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     ventas: true,
@@ -1523,7 +1526,21 @@ export default function Home() {
                       <div key={batch.id} className={`border rounded-lg p-4 space-y-3 ${batch.isLaying ? 'border-green-200 bg-green-50/30' : 'border-stone-200'}`}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-sm">{batch.name}</span>
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                type="text"
+                                value={batch.name}
+                                onChange={e => updateBatch(batch.id, 'name', e.target.value)}
+                                className="h-7 w-36 text-sm font-semibold border-transparent hover:border-stone-300 focus:border-stone-400 bg-transparent px-1"
+                              />
+                              <button
+                                onClick={() => updateBatch(batch.id, 'name', batch.name)}
+                                className="opacity-0 group-hover:opacity-100"
+                                title="Nombre editable"
+                              >
+                                <ClipboardCheck className="w-3 h-3 text-stone-300" />
+                              </button>
+                            </div>
                             <Badge className={PHASE_COLORS[batch.phase]}>
                               {feed.label} ({feed.weeks})
                             </Badge>
@@ -1961,50 +1978,209 @@ export default function Home() {
                       <p className="text-xs mt-1">Configura los valores y haz clic en &quot;Guardar registro del mes&quot;</p>
                     </div>
                   ) : (
-                    <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-                      {savedRecords.map((record) => (
-                        <div key={record.id} className="border rounded-lg p-3.5 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-sm">{record.month}</span>
-                              <span className="text-[10px] text-stone-400">{record.date}</span>
+                    <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+                      {savedRecords.map((record) => {
+                        const isExpanded = expandedRecord === record.id
+                        return (
+                          <div key={record.id} className="border rounded-lg overflow-hidden">
+                            {/* Record header row (always visible, clickable) */}
+                            <div
+                              className="p-3 cursor-pointer hover:bg-stone-50 transition-colors"
+                              onClick={() => setExpandedRecord(isExpanded ? null : record.id)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                  <span className="font-semibold text-sm">{record.month}</span>
+                                  <span className="text-[10px] text-stone-400">{record.date}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {fmtRD(record.config.eggPrice)}/huevo
+                                  </Badge>
+                                  <Badge className={record.net >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                                    {fmtRD(record.net)}
+                                  </Badge>
+                                  <Button
+                                    variant="ghost" size="sm"
+                                    className="h-6 w-6 p-0 text-stone-400 hover:text-stone-700 print:hidden"
+                                    onClick={e => { e.stopPropagation(); setExpandedRecord(isExpanded ? null : record.id) }}
+                                    title="Ver detalle"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost" size="sm"
+                                    className="h-6 w-6 p-0 text-stone-400 hover:text-green-700 print:hidden"
+                                    onClick={e => { e.stopPropagation(); window.print() }}
+                                    title="Imprimir"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500 print:hidden"
+                                    onClick={e => { e.stopPropagation(); deleteRecord(record.id) }}>
+                                    <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                              {/* Quick summary row */}
+                              <div className="grid grid-cols-4 gap-2 text-[11px] mt-2">
+                                <div>
+                                  <span className="text-stone-400 block">Ingresos</span>
+                                  <span className="text-green-700 font-medium">{fmtRD(record.revenue)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-stone-400 block">Gastos</span>
+                                  <span className="text-red-600 font-medium">{fmtRD(record.expenses)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-stone-400 block">Huevo</span>
+                                  <span className="font-medium">{fmtRD(record.config.eggPrice)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-stone-400 block">Feed Postura</span>
+                                  <span className="font-medium">{fmtRD(record.config.feedPhases.postura.price)}/qq</span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-[10px]">
-                                {record.config.eggPrice}/huevo
-                              </Badge>
-                              <Badge className={record.net >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                                {fmtRD(record.net)}
-                              </Badge>
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500"
-                                onClick={() => deleteRecord(record.id)}>
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            </div>
+
+                            {/* Expanded detail (view-only) */}
+                            {isExpanded && (
+                              <div className="border-t bg-stone-50/70 p-4 space-y-3 print:p-3">
+                                <div className="flex items-center justify-between print:hidden">
+                                  <p className="text-xs font-bold text-stone-600 flex items-center gap-1"><Eye className="w-3 h-3" /> Detalle del Registro (solo lectura)</p>
+                                  <Button variant="outline" size="sm" className="gap-1 text-[10px] h-7 print:hidden"
+                                    onClick={() => window.print()}>
+                                    <Printer className="w-3 h-3" /> Imprimir
+                                  </Button>
+                                </div>
+
+                                {/* Print header */}
+                                <div className="hidden print:block mb-3 pb-2 border-b-2 border-black">
+                                  <div className="flex items-center gap-2">
+                                    <img src="/logo.jpg" alt="Granja Nidal" className="w-8 h-8 rounded object-cover" />
+                                    <div>
+                                      <p className="font-bold text-sm">Granja Nidal | Gestor de Granja</p>
+                                      <p className="text-[10px]">Registro del {record.month} — {record.date}</p>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Config snapshot */}
+                                <div>
+                                  <p className="text-[11px] font-bold text-stone-600 mb-1.5 uppercase tracking-wide">Configuracion al momento del registro</p>
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                    <div className="bg-white border rounded p-2 text-[11px]">
+                                      <span className="text-stone-400 block">Precio Huevo</span>
+                                      <span className="font-semibold">{fmtRD(record.config.eggPrice)}</span>
+                                    </div>
+                                    <div className="bg-white border rounded p-2 text-[11px]">
+                                      <span className="text-stone-400 block">Venta Gallina</span>
+                                      <span className="font-semibold">{fmtRD(record.config.henSalePrice)}</span>
+                                    </div>
+                                    <div className="bg-white border rounded p-2 text-[11px]">
+                                      <span className="text-stone-400 block">Costo Pollita</span>
+                                      <span className="font-semibold">{fmtRD(record.config.chickPrice)}</span>
+                                    </div>
+                                    <div className="bg-white border rounded p-2 text-[11px]">
+                                      <span className="text-stone-400 block">% Postura Base</span>
+                                      <span className="font-semibold">{record.config.baseLayingRate}%</span>
+                                    </div>
+                                    <div className="bg-white border rounded p-2 text-[11px]">
+                                      <span className="text-stone-400 block">Aves/Lote</span>
+                                      <span className="font-semibold">{fmtNum(record.config.hensPerBatch)}</span>
+                                    </div>
+                                    <div className="bg-white border rounded p-2 text-[11px]">
+                                      <span className="text-stone-400 block">Gastos Fijos</span>
+                                      <span className="font-semibold">{fmtRD(record.config.fixedCostsMonthly)}</span>
+                                    </div>
+                                    <div className="bg-white border rounded p-2 text-[11px]">
+                                      <span className="text-stone-400 block">Vacunas/Ave</span>
+                                      <span className="font-semibold">{fmtRD(record.config.vaccinesCostPerBird)}</span>
+                                    </div>
+                                    <div className="bg-white border rounded p-2 text-[11px]">
+                                      <span className="text-stone-400 block">Mortalidad</span>
+                                      <span className="font-semibold">{record.config.mortalityRate}%</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Feed prices snapshot */}
+                                <div>
+                                  <p className="text-[11px] font-bold text-stone-600 mb-1.5 uppercase tracking-wide">Precios de Alimento (RD$/qq)</p>
+                                  <div className="grid grid-cols-5 gap-2">
+                                    {(['pre_inicio', 'inicio', 'crecimiento', 'pre_postura', 'postura'] as const).map(pk => (
+                                      <div key={pk} className="bg-white border rounded p-2 text-[10px] text-center">
+                                        <span className="text-stone-400 block">{record.config.feedPhases[pk]?.label || pk}</span>
+                                        <span className="font-semibold">{fmtRD(record.config.feedPhases[pk]?.price || 0)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* Batches snapshot */}
+                                <div>
+                                  <p className="text-[11px] font-bold text-stone-600 mb-1.5 uppercase tracking-wide">Estado de Lotes</p>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-[11px] border-collapse">
+                                      <thead>
+                                        <tr className="border-b border-stone-200 bg-stone-100">
+                                          <th className="text-left py-1 px-1.5">Lote</th>
+                                          <th className="text-right py-1 px-1.5">Aves</th>
+                                          <th className="text-center py-1 px-1.5">Fase</th>
+                                          <th className="text-center py-1 px-1.5">Mes Ciclo</th>
+                                          <th className="text-center py-1 px-1.5">% Postura</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {record.batches.map(b => (
+                                          <tr key={b.id} className="border-b border-stone-100">
+                                            <td className="py-1 px-1.5 font-medium">{b.name}</td>
+                                            <td className="text-right">{fmtNum(b.hens)}</td>
+                                            <td className="text-center">{b.phase.replace('_', '-')}</td>
+                                            <td className="text-center">{b.cycleMonth}</td>
+                                            <td className="text-center">{b.isLaying ? b.layingRate + '%' : 'N/A'}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+
+                                {/* Financial summary */}
+                                <div>
+                                  <p className="text-[11px] font-bold text-stone-600 mb-1.5 uppercase tracking-wide">Resumen Financiero</p>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <div className="bg-green-50 border border-green-200 rounded p-2.5 text-center">
+                                      <p className="text-[10px] text-stone-500">Ingresos</p>
+                                      <p className="text-sm font-bold text-green-700">{fmtRD(record.revenue)}</p>
+                                    </div>
+                                    <div className="bg-red-50 border border-red-200 rounded p-2.5 text-center">
+                                      <p className="text-[10px] text-stone-500">Gastos</p>
+                                      <p className="text-sm font-bold text-red-700">{fmtRD(record.expenses)}</p>
+                                    </div>
+                                    <div className={`${record.net >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} border rounded p-2.5 text-center`}>
+                                      <p className="text-[10px] text-stone-500">Utilidad Neta</p>
+                                      <p className={`text-sm font-bold ${record.net >= 0 ? 'text-green-800' : 'text-red-700'}`}>{fmtRD(record.net)}</p>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {record.notes && (
+                                  <div className="bg-white border rounded p-2.5">
+                                    <p className="text-[10px] text-stone-400 uppercase mb-1">Notas del registro</p>
+                                    <p className="text-[11px] text-stone-600">{record.notes}</p>
+                                  </div>
+                                )}
+
+                                <p className="text-[10px] text-stone-400 print:hidden">
+                                  Registro guardado como archivo historico. Solo lectura — no editable.
+                                </p>
+                              </div>
+                            )}
                           </div>
-                          <div className="grid grid-cols-4 gap-2 text-[11px]">
-                            <div>
-                              <span className="text-stone-400 block">Ingresos</span>
-                              <span className="text-green-700 font-medium">{fmtRD(record.revenue)}</span>
-                            </div>
-                            <div>
-                              <span className="text-stone-400 block">Gastos</span>
-                              <span className="text-red-600 font-medium">{fmtRD(record.expenses)}</span>
-                            </div>
-                            <div>
-                              <span className="text-stone-400 block">Huevo</span>
-                              <span className="font-medium">{fmtRD(record.config.eggPrice)}</span>
-                            </div>
-                            <div>
-                              <span className="text-stone-400 block">Feed Postura</span>
-                              <span className="font-medium">{fmtRD(record.config.feedPhases.postura.price)}/qq</span>
-                            </div>
-                          </div>
-                          {record.notes && (
-                            <p className="text-[11px] text-stone-500 bg-stone-50 rounded p-2">{record.notes}</p>
-                          )}
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </CardContent>
