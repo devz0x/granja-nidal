@@ -568,6 +568,52 @@ export default function Home() {
     const dailyExpenses = totalExpenses / 30
     const breakEvenEggsPerDay = config.eggPrice > 0 ? Math.ceil(dailyExpenses / config.eggPrice) : 0
 
+    // Feed cost breakdown by phase (based on active batches per phase)
+    const feedCostByPhase = PHASE_KEYS.map(key => {
+      const feed = config.feedPhases[key]
+      const defFeed = DEFAULT_FEED[key]
+      const batchesInPhase = batches.filter(b => b.phase === key)
+      const hensInPhase = batchesInPhase.reduce((s, b) => s + b.hens, 0)
+      const monthlyKg = (hensInPhase * feed.consumption * 30) / 1000
+      const monthlyCost = monthlyKg * (feed.price / 100)
+      // Cost with default prices
+      const defMonthlyKg = (hensInPhase * defFeed.consumption * 30) / 1000
+      const defMonthlyCost = defMonthlyKg * (defFeed.price / 100)
+      return {
+        phaseKey: key,
+        label: feed.label,
+        batchesCount: batchesInPhase.length,
+        hens: hensInPhase,
+        consumption: feed.consumption,
+        price: feed.price,
+        defaultPrice: defFeed.price,
+        monthlyKg,
+        monthlyCost,
+        defMonthlyCost,
+        priceDiff: feed.price - defFeed.price,
+        costDiff: monthlyCost - defMonthlyCost,
+      }
+    })
+
+    // Total feed cost if all batches were in postura (for reference)
+    const allPosturaFeedCost = batches.reduce((s, b) => {
+      const posturaFeed = config.feedPhases.postura
+      return s + ((b.hens * posturaFeed.consumption * 30) / 1000) * (posturaFeed.price / 100)
+    }, 0)
+    // Same with default prices
+    const allPosturaFeedCostDefault = batches.reduce((s, b) => {
+      const posturaFeed = DEFAULT_FEED.postura
+      return s + ((b.hens * posturaFeed.consumption * 30) / 1000) * (posturaFeed.price / 100)
+    }, 0)
+
+    // Total feed cost using default prices (for comparison)
+    const defaultTotalFeedCost = batches.reduce((s, b) => {
+      const defFeed = DEFAULT_FEED[b.phase]
+      const defKg = (b.hens * defFeed.consumption * 30) / 1000
+      return s + defKg * (defFeed.price / 100)
+    }, 0)
+    const feedPriceImpact = totalFeedCost - defaultTotalFeedCost
+
     return {
       batchDetails,
       totalEggRevenue,
@@ -598,6 +644,11 @@ export default function Home() {
       structuralAnnualTotal,
       activeStructural: activeStructural.length,
       totalStructuralItems: structuralExpenses.length,
+      feedCostByPhase,
+      allPosturaFeedCost,
+      allPosturaFeedCostDefault,
+      defaultTotalFeedCost,
+      feedPriceImpact,
     }
   }, [batches, config, structuralExpenses])
 
@@ -665,14 +716,21 @@ export default function Home() {
               <p className="text-[10px] text-stone-400">{fmtNum(calculations.totalEggs)} huevos</p>
             </CardContent>
           </Card>
-          <Card className="border-l-4 border-l-red-500">
+          <Card className="border-l-4 border-red-500">
             <CardContent className="p-3">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <TrendingDown className="w-3.5 h-3.5 text-red-600" />
                 <span className="text-[10px] font-medium text-stone-500 uppercase">Gastos</span>
               </div>
               <p className="text-base sm:text-lg font-bold text-red-700">{fmtRD(calculations.totalExpenses)}</p>
-              <p className="text-[10px] text-stone-400">Feed: {fmtRD(calculations.totalFeedCost)}</p>
+              <p className="text-[10px] text-stone-400">
+                Feed: {fmtRD(calculations.totalFeedCost)}
+                {calculations.feedPriceImpact !== 0 && (
+                  <span className={`ml-1 font-medium ${calculations.feedPriceImpact > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                    ({calculations.feedPriceImpact > 0 ? '+' : ''}{fmtRD(calculations.feedPriceImpact)})
+                  </span>
+                )}
+              </p>
             </CardContent>
           </Card>
           <Card className="border-l-4 border-l-amber-500">
@@ -853,7 +911,8 @@ export default function Home() {
                             <TableHead className="text-xs">Fase</TableHead>
                             <TableHead className="text-xs">Semanas</TableHead>
                             <TableHead className="text-xs text-right">Consumo (g/ave/dia)</TableHead>
-                            <TableHead className="text-xs text-right">Precio (RD$/qq)</TableHead>
+                            <TableHead className="text-xs text-right">Precio Actual (RD$/qq)</TableHead>
+                            <TableHead className="text-xs text-right">Precio Base</TableHead>
                             <TableHead className="text-xs text-right">Costo mes/lote</TableHead>
                             <TableHead className="text-xs text-center">Cambio vs Base</TableHead>
                           </TableRow>
@@ -864,8 +923,9 @@ export default function Home() {
                             const defFeed = DEFAULT_FEED[key]
                             const monthlyCost = (config.hensPerBatch * feed.consumption * 30 * feed.price) / 100
                             const defMonthlyCost = (DEFAULT_CONFIG.hensPerBatch * defFeed.consumption * 30 * defFeed.price) / 100
+                            const isPriceChanged = feed.price !== defFeed.price
                             return (
-                              <TableRow key={key} className="group">
+                              <TableRow key={key} className={`group ${isPriceChanged ? 'bg-amber-50/50' : ''}`}>
                                 <TableCell>
                                   <Badge className={`${PHASE_COLORS[key]} text-[10px] whitespace-nowrap`}>
                                     {feed.label}
@@ -890,8 +950,16 @@ export default function Home() {
                                     min={0}
                                     value={feed.price}
                                     onChange={e => updateFeedPhase(key, 'price', parseFloat(e.target.value) || 0)}
-                                    className="w-24 h-7 text-xs text-right mx-auto"
+                                    className={`w-24 h-7 text-xs text-right mx-auto ${isPriceChanged ? 'border-amber-400 bg-amber-50' : ''}`}
                                   />
+                                </TableCell>
+                                <TableCell className="text-right text-xs text-stone-400">
+                                  {fmtNum(defFeed.price)}
+                                  {isPriceChanged && (
+                                    <div className={`text-[9px] font-bold ${feed.price > defFeed.price ? 'text-red-500' : 'text-green-500'}`}>
+                                      {feed.price > defFeed.price ? '+' : ''}{fmtNum(feed.price - defFeed.price)}
+                                    </div>
+                                  )}
                                 </TableCell>
                                 <TableCell className="text-right text-xs font-medium">{fmtRD(monthlyCost)}</TableCell>
                                 <TableCell className="text-center">
@@ -925,13 +993,44 @@ export default function Home() {
                         Proporcional a postura ({fmtRD(config.feedPhases.postura.price)})
                       </Button>
                     </div>
-                    {/* Live calculation */}
-                    <div className="mt-3 p-2.5 bg-amber-50 rounded-lg">
-                      <p className="text-[11px] text-amber-800">
-                        Feed total este mes: <strong>{fmtRD(calculations.totalFeedCost)}</strong> ({fmtNum(Math.round(calculations.totalFeedKg))} kg)
-                        {' | '}Feed/ave en postura: <strong>{fmtRD(calculations.feedCostPerLayingBird)}/mes</strong>
-                        {' | '}RD$ ingreso por RD$ en feed: <strong>x{calculations.revenuePerFeedRD.toFixed(2)}</strong>
-                      </p>
+                    {/* Live calculation - Phase breakdown */}
+                    <div className="mt-3 p-3 bg-amber-50 rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-semibold text-amber-900">IMPACTO DE PRECIOS DE ALIMENTO</p>
+                        {calculations.feedPriceImpact !== 0 && (
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            calculations.feedPriceImpact > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {calculations.feedPriceImpact > 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                            {calculations.feedPriceImpact > 0 ? '+' : ''}{fmtRD(calculations.feedPriceImpact)} vs precios base
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
+                        {calculations.feedCostByPhase.map(fp => (
+                          <div key={fp.phaseKey} className={`flex items-center justify-between px-2 py-1.5 rounded ${fp.batchesCount > 0 ? 'bg-white border border-amber-200' : 'bg-amber-100/50 opacity-70'}`}>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${fp.batchesCount > 0 ? 'bg-green-500' : 'bg-stone-300'}`}></span>
+                              <span className="text-amber-800">{fp.label}</span>
+                              <span className="text-stone-400">({fp.batchesCount} lot{fp.batchesCount !== 1 ? 'es' : 'e'})</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-medium">{fmtRD(fp.monthlyCost)}</span>
+                              {fp.priceDiff !== 0 && (
+                                <span className={`text-[9px] font-bold ${fp.priceDiff > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                  {fp.priceDiff > 0 ? '+' : ''}{fmtNum(fp.priceDiff)}/qq
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t border-amber-200 pt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-amber-800">
+                        <span>Feed total: <strong>{fmtRD(calculations.totalFeedCost)}</strong> ({fmtNum(Math.round(calculations.totalFeedKg))} kg)</span>
+                        <span>Si todos en postura: <strong>{fmtRD(calculations.allPosturaFeedCost)}</strong></span>
+                        <span>Feed/ave postura: <strong>{fmtRD(calculations.feedCostPerLayingBird)}/mes</strong></span>
+                        <span>RD$ ingreso/RD$ feed: <strong>x{calculations.revenuePerFeedRD.toFixed(2)}</strong></span>
+                      </div>
                     </div>
                   </CardContent>
                 )}
