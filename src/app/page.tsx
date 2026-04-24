@@ -734,8 +734,8 @@ export default function Home() {
                 <Egg className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-stone-900">Granja Gallinas WD80</h1>
-                <p className="text-[11px] text-stone-500">Calculadora de Gastos e Ingresos | Estrategia C</p>
+                <h1 className="text-lg font-bold text-stone-900">Granja Nidal</h1>
+                <p className="text-[11px] text-stone-500">Gestor de Granja</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1915,7 +1915,7 @@ export default function Home() {
               config={config}
               calculations={calculations}
               structuralExpenses={structuralExpenses}
-              farmName="Granja Gallinas WD80"
+              farmName="Granja Nidal"
             />
           </TabsContent>
 
@@ -2022,7 +2022,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-1.5">
             <p className="text-[10px] text-stone-400">
-              Granja Gallinas WD80 - Estrategia C | Calculadora de Gastos e Ingresos
+              Granja Nidal | Gestor de Granja
             </p>
             <p className="text-[10px] text-stone-400">
               Datos guardados localmente en tu navegador

@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Granja WD80 - Calculadora de Gastos e Ingresos",
-  description: "Sistema de gestion financiera para Granja Gallinas WD80. Calculadora de gastos, ingresos y estimaciones mensuales.",
+  title: "Granja Nidal - Gestor de Granja",
+  description: "Sistema de gestion financiera para Granja Nidal. Gastos, ingresos, inventario y estimaciones mensuales.",
 };
 
 export default function RootLayout({

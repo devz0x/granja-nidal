@@ -1785,11 +1785,11 @@ export default function ReportsPanel({ batches, config, calculations, structural
           {activeReport === 'contable' && (
             <>
               <div className="flex items-center justify-between print:hidden mb-4">
-                <ReportHeader title={`Granja Gallinas WD80 - Reporte Contable`} subtitle="Estado de resultados, proyecciones e impuestos" icon={<DollarSign className="w-5 h-5 text-green-600 print:hidden" />} />
+                <ReportHeader title={`Granja Nidal - Reporte Contable`} subtitle="Estado de resultados, proyecciones e impuestos" icon={<DollarSign className="w-5 h-5 text-green-600 print:hidden" />} />
                 <PrintButton label="Imprimir Reporte" />
               </div>
               <div className="hidden print:block mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Reporte Contable" subtitle="Estado de resultados, proyecciones e impuestos" icon={<DollarSign className="w-5 h-5 text-green-600" />} />
+                <ReportHeader title="Granja Nidal - Reporte Contable" subtitle="Estado de resultados, proyecciones e impuestos" icon={<DollarSign className="w-5 h-5 text-green-600" />} />
               </div>
               <ReportContable c={calculations} config={config} structuralExpenses={structuralExpenses} batches={batches} />
             </>
@@ -1798,11 +1798,11 @@ export default function ReportsPanel({ batches, config, calculations, structural
           {activeReport === 'ingeniero' && (
             <>
               <div className="flex items-center justify-between print:hidden mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Reporte de Mantenimiento" subtitle="Infraestructura, recursos, bioseguridad y riesgos" icon={<Building2 className="w-5 h-5 text-amber-600" />} />
+                <ReportHeader title="Granja Nidal - Reporte de Mantenimiento" subtitle="Infraestructura, recursos, bioseguridad y riesgos" icon={<Building2 className="w-5 h-5 text-amber-600" />} />
                 <PrintButton label="Imprimir Reporte" />
               </div>
               <div className="hidden print:block mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Reporte de Mantenimiento" subtitle="Infraestructura, recursos, bioseguridad y riesgos" icon={<Building2 className="w-5 h-5 text-amber-600" />} />
+                <ReportHeader title="Granja Nidal - Reporte de Mantenimiento" subtitle="Infraestructura, recursos, bioseguridad y riesgos" icon={<Building2 className="w-5 h-5 text-amber-600" />} />
               </div>
               <ReportIngeniero config={config} structuralExpenses={structuralExpenses} batches={batches} calculations={calculations} />
             </>
@@ -1811,11 +1811,11 @@ export default function ReportsPanel({ batches, config, calculations, structural
           {activeReport === 'veterinario' && (
             <>
               <div className="flex items-center justify-between print:hidden mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Reporte Veterinario" subtitle="Estado sanitario, alertas tempranas y calendario sanitario" icon={<Heart className="w-5 h-5 text-sky-600" />} />
+                <ReportHeader title="Granja Nidal - Reporte Veterinario" subtitle="Estado sanitario, alertas tempranas y calendario sanitario" icon={<Heart className="w-5 h-5 text-sky-600" />} />
                 <PrintButton label="Imprimir Reporte" />
               </div>
               <div className="hidden print:block mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Reporte Veterinario" subtitle="Estado sanitario, alertas tempranas y calendario sanitario" icon={<Heart className="w-5 h-5 text-sky-600" />} />
+                <ReportHeader title="Granja Nidal - Reporte Veterinario" subtitle="Estado sanitario, alertas tempranas y calendario sanitario" icon={<Heart className="w-5 h-5 text-sky-600" />} />
               </div>
               <ReportVeterinario batches={batches} config={config} calculations={calculations} />
             </>
@@ -1824,11 +1824,11 @@ export default function ReportsPanel({ batches, config, calculations, structural
           {activeReport === 'socios' && (
             <>
               <div className="flex items-center justify-between print:hidden mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Reporte para Socios" subtitle="Resumen ejecutivo, escenarios, valoracion y proyeccion" icon={<Users className="w-5 h-5 text-violet-600" />} />
+                <ReportHeader title="Granja Nidal - Reporte para Socios" subtitle="Resumen ejecutivo, escenarios, valoracion y proyeccion" icon={<Users className="w-5 h-5 text-violet-600" />} />
                 <PrintButton label="Imprimir Reporte" />
               </div>
               <div className="hidden print:block mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Reporte para Socios" subtitle="Resumen ejecutivo, escenarios, valoracion y proyeccion" icon={<Users className="w-5 h-5 text-violet-600" />} />
+                <ReportHeader title="Granja Nidal - Reporte para Socios" subtitle="Resumen ejecutivo, escenarios, valoracion y proyeccion" icon={<Users className="w-5 h-5 text-violet-600" />} />
               </div>
               <ReportSocios c={calculations} config={config} batches={batches} calculations={calculations} />
             </>
@@ -1837,11 +1837,11 @@ export default function ReportsPanel({ batches, config, calculations, structural
           {activeReport === 'banco' && (
             <>
               <div className="flex items-center justify-between print:hidden mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Proyeccion Financiera" subtitle="Financiamiento, amortizacion y solvencia bancaria" icon={<Landmark className="w-5 h-5 text-stone-600" />} />
+                <ReportHeader title="Granja Nidal - Proyeccion Financiera" subtitle="Financiamiento, amortizacion y solvencia bancaria" icon={<Landmark className="w-5 h-5 text-stone-600" />} />
                 <PrintButton label="Imprimir Reporte" />
               </div>
               <div className="hidden print:block mb-4">
-                <ReportHeader title="Granja Gallinas WD80 - Proyeccion Financiera" subtitle="Financiamiento, amortizacion y solvencia bancaria" icon={<Landmark className="w-5 h-5 text-stone-600" />} />
+                <ReportHeader title="Granja Nidal - Proyeccion Financiera" subtitle="Financiamiento, amortizacion y solvencia bancaria" icon={<Landmark className="w-5 h-5 text-stone-600" />} />
               </div>
               <ReportBanco c={calculations} config={config} batches={batches} calculations={calculations} />
             </>
