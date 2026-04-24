@@ -93,3 +93,40 @@ Stage Summary:
 - New "Alertas" tab added to the app with full reminders management system
 - Header shows red alert badge with count when urgent/overdue reminders exist (clickable to navigate)
 - All data persists to localStorage under 'granja-wd80-reminders'
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Create auto-generated reminders synced with batch lifecycle, phases, and vaccinations
+
+Work Log:
+- Created `/home/z/my-project/src/lib/auto-reminders.ts` (330 lines) with shared utility functions
+- Auto-reminder triggers implemented:
+  1. **New batch created** → 9 vaccinations (WD80 schedule), 4 feed phase transitions, 2 milestones (inicio postura + pico), 1 galpon preparation, 1 vet visit, 3 pest control (monthly), 1 cycle-end warning = ~21 reminders per batch
+  2. **Phase change detected** → Feed purchase reminder for new phase + production recording prompt when entering postura
+  3. **Cycle warning** (3 months left, 1 month left) → Urgent alerts to plan batch replacement
+  4. **Batch removed** → All auto-reminders for that batch are cleaned up
+- Duplicate prevention: `existsAutoReminder()` checks autoSource + batchId + title fragment
+- All auto-reminders identified with `autoSource` flag and prefix "auto-" in ID
+- Modified page.tsx:
+  - Import auto-reminder functions from `@/lib/auto-reminders`
+  - `addBatch()`: calls `generateRemindersForNewBatch()` with setTimeout(100ms)
+  - `removeBatch()`: calls `clearAutoRemindersForBatch()` 
+  - Added useEffect watching `batches` with `prevBatchesRef` to detect phase changes → `generatePhaseChangeReminders()`
+  - Added cycle warning detection in same useEffect → `generateCycleWarningReminder()`
+- Updated RemindersPanel:
+  - Added `autoSource?: string` to Reminder interface
+  - Added AUTO_SOURCE_LABELS and AUTO_SOURCE_COLORS configs (6 source types)
+  - Added Sparkles icon import
+  - Added `filterOrigin` state ('all' | 'auto' | 'manual') with dropdown in toolbar
+  - Added auto-source badge on each reminder card (Sparkles icon + colored label)
+  - Added stats card "Auto-generadas" showing count of auto vs manual reminders
+  - Stats grid expanded from 5 to 6 columns (lg:grid-cols-6)
+- Build verified: compiled successfully, no lint errors
+
+Stage Summary:
+- Auto-reminders are generated automatically when: new batch added, phase changes, cycle nearing end
+- ~21 reminders auto-generated per new batch covering entire lifecycle
+- Each auto-reminder is tagged with origin source and visually distinct (Sparkles badge)
+- Filter available to show only auto-generated or only manual reminders
+- All auto data persists in same localStorage key, read by RemindersPanel seamlessly

@@ -22,7 +22,7 @@ import {
   Syringe, Wheat, Wrench, DollarSign, Heart, ShieldCheck, Hammer, MoreHorizontal,
   Plus, Trash2, Edit3, Save, X, CheckCircle2, AlertTriangle, Clock, Bell,
   Calendar, ChevronDown, ChevronUp, Filter, Search, Printer, RotateCcw, Eye,
-  Bug, ClipboardCheck, Timer, ArrowUpDown,
+  Bug, ClipboardCheck, Timer, ArrowUpDown, Sparkles,
 } from 'lucide-react'
 
 // ================================================================
@@ -50,6 +50,7 @@ interface Reminder {
   notes: string
   estimatedCost: number
   assignedTo: string
+  autoSource?: string  // 'batch-created', 'phase-change', 'phase-transition', 'cycle-warning', 'pest-control', 'batch-milestone'
 }
 
 interface RemindersProps {
@@ -67,6 +68,24 @@ interface RemindersProps {
 // CONSTANTS
 // ================================================================
 const LS_KEY = 'granja-wd80-reminders'
+
+const AUTO_SOURCE_LABELS: Record<string, string> = {
+  'batch-created': 'Lote Creado',
+  'phase-change': 'Cambio Fase',
+  'phase-transition': 'Transición',
+  'cycle-warning': 'Fin Ciclo',
+  'pest-control': 'Control Plagas',
+  'batch-milestone': 'Hito',
+}
+
+const AUTO_SOURCE_COLORS: Record<string, string> = {
+  'batch-created': 'bg-violet-100 text-violet-700 border-violet-200',
+  'phase-change': 'bg-amber-100 text-amber-700 border-amber-200',
+  'phase-transition': 'bg-sky-100 text-sky-700 border-sky-200',
+  'cycle-warning': 'bg-red-100 text-red-700 border-red-200',
+  'pest-control': 'bg-orange-100 text-orange-700 border-orange-200',
+  'batch-milestone': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+}
 
 const CATEGORY_CONFIG: Record<ReminderCategory, { label: string; icon: typeof Syringe; color: string }> = {
   vacuna: { label: 'Vacunación', icon: Syringe, color: 'text-violet-600' },
@@ -202,6 +221,7 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
   const [filterPriority, setFilterPriority] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterBatch, setFilterBatch] = useState<string>('all')
+  const [filterOrigin, setFilterOrigin] = useState<string>('all') // 'all' | 'auto' | 'manual'
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState<SortField>('dueDate')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -236,6 +256,8 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
       const diff = daysBetween(today, r.dueDate)
       return diff >= 0 && diff <= 7
     })
+    const autoActive = active.filter(r => r.autoSource)
+    const manualActive = active.filter(r => !r.autoSource)
     return {
       active: active.length,
       overdue: overdue.length,
@@ -243,6 +265,8 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
       urgente: urgenteCount.length,
       completedThisMonth: completedThisMonth.length,
       next7: next7.length,
+      autoActive: autoActive.length,
+      manualActive: manualActive.length,
     }
   }, [reminders, today])
 
@@ -253,6 +277,8 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
       if (filterPriority !== 'all' && r.priority !== filterPriority) return false
       if (filterStatus !== 'all' && r.status !== filterStatus) return false
       if (filterBatch !== 'all' && r.batchId !== filterBatch) return false
+      if (filterOrigin === 'auto' && !r.autoSource) return false
+      if (filterOrigin === 'manual' && r.autoSource) return false
       if (searchQuery) {
         const q = searchQuery.toLowerCase()
         if (!r.title.toLowerCase().includes(q) && !r.description.toLowerCase().includes(q)) return false
@@ -289,7 +315,7 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
     })
 
     return list
-  }, [reminders, filterCategory, filterPriority, filterStatus, filterBatch, searchQuery, sortField, sortDir])
+  }, [reminders, filterCategory, filterPriority, filterStatus, filterBatch, filterOrigin, searchQuery, sortField, sortDir])
 
   const activeReminders = useMemo(() => filteredReminders.filter(r => r.status !== 'completada' && r.status !== 'cancelada'), [filteredReminders])
   const completedReminders = useMemo(() => filteredReminders.filter(r => r.status === 'completada' || r.status === 'cancelada'), [filteredReminders])
@@ -469,6 +495,12 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
                   {r.status === 'completada' && <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />}
                   {staConfig.label}
                 </Badge>
+                {r.autoSource && (
+                  <Badge className={`${AUTO_SOURCE_COLORS[r.autoSource] || 'bg-stone-100 text-stone-500'} text-[8px] px-1.5 py-0 border font-medium flex items-center gap-0.5`}>
+                    <Sparkles className="w-2 h-2" />
+                    {AUTO_SOURCE_LABELS[r.autoSource] || 'Auto'}
+                  </Badge>
+                )}
               </div>
               {r.description && (
                 <p className="text-[10px] text-stone-500 mt-0.5 line-clamp-1">
@@ -658,7 +690,7 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
       )}
 
       {/* ---- Stats Dashboard ---- */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         <Card className="border-l-4 border-l-blue-400">
           <CardContent className="p-3">
             <div className="flex items-center gap-1.5 mb-1">
@@ -709,6 +741,24 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
                 onClick={completeAllOverdue}
               >
                 Completar todos →
+              </button>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-indigo-500 hidden lg:block">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              <span className="text-[10px] font-medium text-stone-500">Auto-generadas</span>
+            </div>
+            <p className="text-lg font-bold text-indigo-700">{stats.autoActive}</p>
+            <p className="text-[9px] text-stone-400">{stats.manualActive} manuales</p>
+            {stats.autoActive > 0 && (
+              <button
+                className="text-[9px] text-indigo-600 hover:underline cursor-pointer"
+                onClick={() => setFilterOrigin('auto')}
+              >
+                Ver auto →
               </button>
             )}
           </CardContent>
@@ -779,6 +829,15 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
                   ))}
                 </select>
               )}
+              <select
+                value={filterOrigin}
+                onChange={e => setFilterOrigin(e.target.value)}
+                className="h-8 text-[10px] rounded-md border border-input bg-background px-2"
+              >
+                <option value="all">Todo origen</option>
+                <option value="auto">Auto-generadas</option>
+                <option value="manual">Manuales</option>
+              </select>
             </div>
 
             {/* Sort */}

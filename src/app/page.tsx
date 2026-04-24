@@ -21,6 +21,7 @@ import {
 import OperationsPanel from '@/components/operations-panel'
 import ReportsPanel from '@/components/reports-panel'
 import RemindersPanel from '@/components/reminders-panel'
+import { generateRemindersForNewBatch, generatePhaseChangeReminders, generateCycleWarningReminder, clearAutoRemindersForBatch } from '@/lib/auto-reminders'
 import {
   Calculator,
   TrendingUp,
@@ -442,19 +443,30 @@ export default function Home() {
 
   const addBatch = useCallback(() => {
     const num = batches.length + 1
+    const newId = `batch-${batches.length}`
+    const newName = `Galpon ${num}`
     setBatches(prev => [...prev, {
-      id: `batch-${prev.length}`,
-      name: `Galpon ${num}`,
+      id: newId,
+      name: newName,
       hens: config.hensPerBatch,
       layingRate: config.baseLayingRate,
       isLaying: false,
       cycleMonth: 0,
       phase: 'pre_inicio',
     }])
+    // Auto-generate reminders for new batch (vaccination schedule, feed transitions, milestones)
+    const today = new Date().toISOString().split('T')[0]
+    setTimeout(() => {
+      generateRemindersForNewBatch(newId, newName, config.hensPerBatch, today)
+    }, 100)
   }, [batches.length, config.hensPerBatch, config.baseLayingRate])
 
   const removeBatch = useCallback((id: string) => {
     setBatches(prev => prev.filter(b => b.id !== id))
+    // Clean up auto-generated reminders for this batch
+    setTimeout(() => {
+      clearAutoRemindersForBatch(id)
+    }, 100)
   }, [])
 
   const resetAll = useCallback(() => {
@@ -760,6 +772,31 @@ export default function Home() {
     }, 120000)
     return () => clearInterval(interval)
   }, [])
+
+  // ================================================================
+  // AUTO-REMINDERS: Watch for phase changes and cycle warnings
+  // ================================================================
+  const prevBatchesRef = useRef(batches)
+  useEffect(() => {
+    const prev = prevBatchesRef.current
+    // Detect phase changes per batch
+    batches.forEach(batch => {
+      const prevBatch = prev.find(b => b.id === batch.id)
+      if (!prevBatch) return
+      if (prevBatch.phase !== batch.phase) {
+        const phaseLabel = DEFAULT_FEED[batch.phase as PhaseKey]?.label || batch.phase
+        generatePhaseChangeReminders(batch.id, batch.name, batch.hens, batch.phase, phaseLabel)
+      }
+      // Detect cycle warnings (for laying batches)
+      if (batch.isLaying && batch.cycleMonth > 0) {
+        const monthsLeft = config.layingCycleMonths - (batch.cycleMonth - 5) // -5 because laying starts at month 5
+        if (monthsLeft <= 3 && monthsLeft > 0) {
+          generateCycleWarningReminder(batch.id, batch.name, batch.cycleMonth, config.layingCycleMonths)
+        }
+      }
+    })
+    prevBatchesRef.current = batches
+  }, [batches, config.layingCycleMonths])
 
   const saveRecord = useCallback(() => {
     const now = new Date()
