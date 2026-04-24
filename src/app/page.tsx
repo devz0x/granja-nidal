@@ -21,6 +21,7 @@ import {
 import OperationsPanel from '@/components/operations-panel'
 import ReportsPanel from '@/components/reports-panel'
 import RemindersPanel from '@/components/reminders-panel'
+import FarmMapView from '@/components/farm-map-view'
 import { generateRemindersForNewBatch, generatePhaseChangeReminders, generateCycleWarningReminder, clearAutoRemindersForBatch } from '@/lib/auto-reminders'
 import {
   Calculator,
@@ -64,6 +65,7 @@ import {
   Eye,
   Printer,
   Bell,
+  Map,
 } from 'lucide-react'
 
 // ================================================================
@@ -982,7 +984,7 @@ export default function Home() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-8 mb-5">
+          <TabsList className="grid w-full grid-cols-9 mb-5">
             <TabsTrigger value="config" className="text-[10px] sm:text-sm">
               <Settings className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
               Config
@@ -1010,6 +1012,10 @@ export default function Home() {
             <TabsTrigger value="reminders" className="text-[10px] sm:text-sm">
               <Bell className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
               Alertas
+            </TabsTrigger>
+            <TabsTrigger value="map" className="text-[10px] sm:text-sm">
+              <Map className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
+              Vista Granja
             </TabsTrigger>
             <TabsTrigger value="history" className="text-[10px] sm:text-sm">
               <FileText className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
@@ -2051,6 +2057,15 @@ export default function Home() {
               config={config}
               fmtRD={fmtRD}
               fmtNum={fmtNum}
+            />
+          </TabsContent>
+
+          {/* ============ TAB: VISTA GRANJA (RPG MAP) ============ */}
+          <TabsContent value="map">
+            <FarmMapView
+              batches={batches}
+              config={config}
+              calculations={calculations}
             />
           </TabsContent>
 

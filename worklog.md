@@ -130,3 +130,19 @@ Stage Summary:
 - Each auto-reminder is tagged with origin source and visually distinct (Sparkles badge)
 - Filter available to show only auto-generated or only manual reminders
 - All auto data persists in same localStorage key, read by RemindersPanel seamlessly
+---
+Task ID: 1
+Agent: main
+Task: Crear seccion visual de vista aerea RPG 2D de la granja
+
+Work Log:
+- Leido page.tsx completo para entender estructura de datos (batches, config, calculations), tabs, y tipos
+- Creado componente FarmMapView en /home/z/my-project/src/components/farm-map-view.tsx
+- Integrado en page.tsx: import, nuevo tab "Vista Granja" con icono Map, TabsContent
+- Cambiado grid-cols-8 a grid-cols-9 en TabsList
+- Build exitoso sin errores, lint limpio para el nuevo componente
+
+Stage Summary:
+- Nuevo componente: /home/z/my-project/src/components/farm-map-view.tsx (~550 lineas)
+- Caracteristicas RPG: HUD bar con HP/coins/eggs, vista aerea 2D con cielo/nubes/sol, 4 galpones con techos por fase, cercas, silo, tanque de agua, gallinas caminando, arboles pixel art, pasto decorativo, lineas scan retro, animaciones (nubes, sol, huevos, gallinas), barra de progreso de ciclo, estado de feed
+- Integracion: Nueva pestana "Vista Granja" como tab 9 de 9
