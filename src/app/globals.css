@@ -120,3 +120,38 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Print styles */
+@media print {
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    background: white !important;
+  }
+
+  header, footer, nav, [class*="sticky"] {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .min-h-screen {
+    min-height: auto !important;
+  }
+
+  @page {
+    margin: 1.5cm;
+    size: letter;
+  }
+
+  table {
+    page-break-inside: avoid;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+}

@@ -18,6 +18,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import OperationsPanel from '@/components/operations-panel'
+import ReportsPanel from '@/components/reports-panel'
 import {
   Calculator,
   TrendingUp,
@@ -54,6 +56,8 @@ import {
   ShieldCheck,
   MoreHorizontal,
   Hammer,
+  ClipboardCheck,
+  FileOutput,
 } from 'lucide-react'
 
 // ================================================================
@@ -717,25 +721,33 @@ export default function Home() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5 mb-5">
-            <TabsTrigger value="config" className="text-xs sm:text-sm">
-              <Settings className="w-4 h-4 mr-1 hidden sm:inline" />
-              Config Base
+          <TabsList className="grid w-full grid-cols-7 mb-5">
+            <TabsTrigger value="config" className="text-[10px] sm:text-sm">
+              <Settings className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
+              Config
             </TabsTrigger>
-            <TabsTrigger value="batches" className="text-xs sm:text-sm">
-              <ClipboardList className="w-4 h-4 mr-1 hidden sm:inline" />
+            <TabsTrigger value="batches" className="text-[10px] sm:text-sm">
+              <ClipboardList className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
               Lotes
             </TabsTrigger>
-            <TabsTrigger value="details" className="text-xs sm:text-sm">
-              <BarChart3 className="w-4 h-4 mr-1 hidden sm:inline" />
+            <TabsTrigger value="operations" className="text-[10px] sm:text-sm">
+              <ClipboardCheck className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
+              Operaciones
+            </TabsTrigger>
+            <TabsTrigger value="details" className="text-[10px] sm:text-sm">
+              <BarChart3 className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
               Detalle
             </TabsTrigger>
-            <TabsTrigger value="kpis" className="text-xs sm:text-sm">
-              <Sparkles className="w-4 h-4 mr-1 hidden sm:inline" />
+            <TabsTrigger value="kpis" className="text-[10px] sm:text-sm">
+              <Sparkles className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
               KPIs
             </TabsTrigger>
-            <TabsTrigger value="history" className="text-xs sm:text-sm">
-              <FileText className="w-4 h-4 mr-1 hidden sm:inline" />
+            <TabsTrigger value="reports" className="text-[10px] sm:text-sm">
+              <FileOutput className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
+              Reportes
+            </TabsTrigger>
+            <TabsTrigger value="history" className="text-[10px] sm:text-sm">
+              <FileText className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
               Historial
             </TabsTrigger>
           </TabsList>
@@ -1400,6 +1412,11 @@ export default function Home() {
             </Card>
           </TabsContent>
 
+          {/* ============ TAB: OPERACIONES ============ */}
+          <TabsContent value="operations">
+            <OperationsPanel batches={batches} config={config} fmtRD={fmtRD} fmtNum={fmtNum} />
+          </TabsContent>
+
           {/* ============ TAB: DETALLE ============ */}
           <TabsContent value="details">
             <div className="space-y-5">
@@ -1694,6 +1711,17 @@ export default function Home() {
                 </Card>
               </div>
             </div>
+          </TabsContent>
+
+          {/* ============ TAB: REPORTES ============ */}
+          <TabsContent value="reports">
+            <ReportsPanel
+              batches={batches}
+              config={config}
+              calculations={calculations}
+              structuralExpenses={structuralExpenses}
+              farmName="Granja Gallinas WD80"
+            />
           </TabsContent>
 
           {/* ============ TAB: HISTORIAL ============ */}
