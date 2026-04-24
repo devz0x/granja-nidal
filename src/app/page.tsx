@@ -58,6 +58,7 @@ import {
   Hammer,
   ClipboardCheck,
   FileOutput,
+  RefreshCw,
 } from 'lucide-react'
 
 // ================================================================
@@ -470,21 +471,30 @@ export default function Home() {
   }, [])
 
   // ================================================================
-  // CORE CALCULATIONS - reactive to ALL config + batch changes
+  // CORE CALCULATIONS - Manual update via "Actualizar" button
   // ================================================================
-  const calculations = useMemo(() => {
+  const [configVersion, setConfigVersion] = useState(0)
+  const [displayedCalcs, setDisplayedCalcs] = useState<ReturnType<typeof computeCalculations> | null>(null)
+
+  // Track config changes to show pending indicator
+  useEffect(() => {
+    setConfigVersion(v => v + 1)
+  }, [config, batches, structuralExpenses])
+
+  // Compute function (pure, no state)
+  function computeCalculations(cfg: FarmConfig, bts: BatchConfig[], se: StructuralExpense[]) {
     // Per-batch calculations
-    const batchDetails = batches.map(batch => {
+    const batchDetails = bts.map(batch => {
       const phase = batch.phase
-      const feed = config.feedPhases[phase]
+      const feed = cfg.feedPhases[phase]
       const monthlyFeedKg = (batch.hens * feed.consumption * 30) / 1000
       const monthlyFeedCost = monthlyFeedKg * (feed.price / 100)  // price is per quintal (100kg)
 
       const eggsPerDay = batch.isLaying ? batch.hens * (batch.layingRate / 100) : 0
       const eggsPerMonth = Math.round(eggsPerDay * 30)
-      const eggRevenue = eggsPerMonth * config.eggPrice
+      const eggRevenue = eggsPerMonth * cfg.eggPrice
 
-      const initialInvestmentPerBird = config.chickPrice + config.vaccinesCostPerBird + config.equipmentCostPerBird
+      const initialInvestmentPerBird = cfg.chickPrice + cfg.vaccinesCostPerBird + cfg.equipmentCostPerBird
       const batchInvestment = batch.hens * initialInvestmentPerBird
 
       return {
@@ -515,17 +525,17 @@ export default function Home() {
     const totalRevenue = totalEggRevenue
 
     // Structural expenses - monthly equivalent
-    const activeStructural = structuralExpenses.filter(e => e.isActive)
+    const activeStructural = se.filter(e => e.isActive)
     const structuralMonthlyTotal = activeStructural.reduce((sum, e) => {
       const mult = FREQUENCY_MULTIPLIER[e.frequency]
       return sum + (e.amount * mult / 12)
     }, 0)
     const structuralAnnualTotal = activeStructural.reduce((sum, e) => sum + e.amount * FREQUENCY_MULTIPLIER[e.frequency], 0)
 
-    const totalExpenses = totalFeedCost + config.fixedCostsMonthly + config.otherCosts + structuralMonthlyTotal
+    const totalExpenses = totalFeedCost + cfg.fixedCostsMonthly + cfg.otherCosts + structuralMonthlyTotal
     const netProfit = totalRevenue - totalExpenses
-    const layingBatches = batches.filter(b => b.isLaying).length
-    const totalHens = batches.reduce((s, b) => s + b.hens, 0)
+    const layingBatches = bts.filter(b => b.isLaying).length
+    const totalHens = bts.reduce((s, b) => s + b.hens, 0)
     const totalEggs = batchDetails.reduce((s, b) => s + b.eggsPerMonth, 0)
 
     // Derived KPIs
@@ -536,26 +546,26 @@ export default function Home() {
     const revenuePerBirdMonthly = totalHens > 0 ? totalRevenue / totalHens : 0
 
     // Feed cost per laying bird per month
-    const layingBirds = batches.filter(b => b.isLaying).reduce((s, b) => s + b.hens, 0)
+    const layingBirds = bts.filter(b => b.isLaying).reduce((s, b) => s + b.hens, 0)
     const feedCostPerLayingBird = layingBirds > 0 ? totalFeedCost / layingBirds : 0
 
     // Hen sale revenue at cycle end
-    const totalHenSaleRevenue = totalHens * config.henSalePrice
+    const totalHenSaleRevenue = totalHens * cfg.henSalePrice
 
     // Initial investment for a new batch
-    const newBatchInvestment = config.hensPerBatch * (config.chickPrice + config.vaccinesCostPerBird + config.equipmentCostPerBird)
-    const newBatchInvestmentWithMortality = newBatchInvestment / (1 - config.mortalityRate / 100)
+    const newBatchInvestment = cfg.hensPerBatch * (cfg.chickPrice + cfg.vaccinesCostPerBird + cfg.equipmentCostPerBird)
+    const newBatchInvestmentWithMortality = newBatchInvestment / (1 - cfg.mortalityRate / 100)
 
     // Infrastructure total
-    const infraCost = config.shed1Cost + (Math.max(0, batches.length - 1) * config.shedAdditionalCost)
+    const infraCost = cfg.shed1Cost + (Math.max(0, bts.length - 1) * cfg.shedAdditionalCost)
 
     // Monthly pre-lay feed cost (for a batch in rearing)
     const preLayMonthlyCost = PHASE_KEYS
       .filter(k => k !== 'postura')
       .reduce((sum, key) => {
-        const feed = config.feedPhases[key]
+        const feed = cfg.feedPhases[key]
         // Approximate: assume ~1 month per phase in rearing
-        const monthlyKg = (config.hensPerBatch * feed.consumption * 30) / 1000
+        const monthlyKg = (cfg.hensPerBatch * feed.consumption * 30) / 1000
         return sum + (monthlyKg * feed.price / 100)
       }, 0) / 4 // average across 4 pre-lay months
 
@@ -566,13 +576,13 @@ export default function Home() {
 
     // Break-even eggs per day (total)
     const dailyExpenses = totalExpenses / 30
-    const breakEvenEggsPerDay = config.eggPrice > 0 ? Math.ceil(dailyExpenses / config.eggPrice) : 0
+    const breakEvenEggsPerDay = cfg.eggPrice > 0 ? Math.ceil(dailyExpenses / cfg.eggPrice) : 0
 
     // Feed cost breakdown by phase (based on active batches per phase)
     const feedCostByPhase = PHASE_KEYS.map(key => {
-      const feed = config.feedPhases[key]
+      const feed = cfg.feedPhases[key]
       const defFeed = DEFAULT_FEED[key]
-      const batchesInPhase = batches.filter(b => b.phase === key)
+      const batchesInPhase = bts.filter(b => b.phase === key)
       const hensInPhase = batchesInPhase.reduce((s, b) => s + b.hens, 0)
       const monthlyKg = (hensInPhase * feed.consumption * 30) / 1000
       const monthlyCost = monthlyKg * (feed.price / 100)
@@ -596,18 +606,18 @@ export default function Home() {
     })
 
     // Total feed cost if all batches were in postura (for reference)
-    const allPosturaFeedCost = batches.reduce((s, b) => {
-      const posturaFeed = config.feedPhases.postura
+    const allPosturaFeedCost = bts.reduce((s, b) => {
+      const posturaFeed = cfg.feedPhases.postura
       return s + ((b.hens * posturaFeed.consumption * 30) / 1000) * (posturaFeed.price / 100)
     }, 0)
     // Same with default prices
-    const allPosturaFeedCostDefault = batches.reduce((s, b) => {
+    const allPosturaFeedCostDefault = bts.reduce((s, b) => {
       const posturaFeed = DEFAULT_FEED.postura
       return s + ((b.hens * posturaFeed.consumption * 30) / 1000) * (posturaFeed.price / 100)
     }, 0)
 
     // Total feed cost using default prices (for comparison)
-    const defaultTotalFeedCost = batches.reduce((s, b) => {
+    const defaultTotalFeedCost = bts.reduce((s, b) => {
       const defFeed = DEFAULT_FEED[b.phase]
       const defKg = (b.hens * defFeed.consumption * 30) / 1000
       return s + defKg * (defFeed.price / 100)
@@ -643,17 +653,43 @@ export default function Home() {
       structuralMonthlyTotal,
       structuralAnnualTotal,
       activeStructural: activeStructural.length,
-      totalStructuralItems: structuralExpenses.length,
+      totalStructuralItems: se.length,
       feedCostByPhase,
       allPosturaFeedCost,
       allPosturaFeedCostDefault,
       defaultTotalFeedCost,
       feedPriceImpact,
     }
-  }, [batches, config, structuralExpenses])
+  }
+
+  // Initial calculation on mount
+  useEffect(() => {
+    if (!displayedCalcs) {
+      setDisplayedCalcs(computeCalculations(config, batches, structuralExpenses))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Keep live calculations always up-to-date (for config section live previews)
+  const liveCalcs = useMemo(() => computeCalculations(config, batches, structuralExpenses), [config, batches, structuralExpenses])
+
+  // Manual update: copies live → displayed
+  const [lastUpdateVersion, setLastUpdateVersion] = useState(0)
+  const hasPendingChanges = configVersion > lastUpdateVersion
+
+  const handleUpdateCalculations = useCallback(() => {
+    setDisplayedCalcs(computeCalculations(config, batches, structuralExpenses))
+    setLastUpdateVersion(configVersion)
+  }, [config, batches, structuralExpenses, configVersion])
+
+  // Top KPI cards use displayedCalcs (manual update)
+  // Config sections use liveCalcs (real-time preview)
+  const calculations = displayedCalcs || liveCalcs
 
   const saveRecord = useCallback(() => {
     const now = new Date()
+    // Always use latest live calculations for saving records
+    const currentCalcs = computeCalculations(config, batches, structuralExpenses)
     const record: MonthlyRecord = {
       id: `rec-${Date.now()}`,
       month: now.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' }),
@@ -661,13 +697,13 @@ export default function Home() {
       batches: JSON.parse(JSON.stringify(batches)),
       config: JSON.parse(JSON.stringify(config)),
       notes,
-      revenue: calculations.totalRevenue,
-      expenses: calculations.totalExpenses,
-      net: calculations.netProfit,
+      revenue: currentCalcs.totalRevenue,
+      expenses: currentCalcs.totalExpenses,
+      net: currentCalcs.netProfit,
     }
     setSavedRecords(prev => [record, ...prev])
     setNotes('')
-  }, [batches, config, notes, calculations.totalRevenue, calculations.totalExpenses, calculations.netProfit])
+  }, [batches, config, notes, structuralExpenses])
 
   // ================================================================
   // RENDER
@@ -690,13 +726,13 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs hidden sm:inline-flex">
                 <Activity className="w-3 h-3 mr-1" />
-                {calculations.layingBatches}/{batches.length} postura
+                {liveCalcs.layingBatches}/{batches.length} postura
               </Badge>
               <Badge variant="outline" className="text-xs hidden sm:inline-flex">
-                {fmtNum(calculations.totalHens)} aves
+                {fmtNum(liveCalcs.totalHens)} aves
               </Badge>
-              <Badge className={`text-xs ${calculations.netProfit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {fmtRD(calculations.netProfit)}/mes
+              <Badge className={`text-xs ${liveCalcs.netProfit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                {fmtRD(liveCalcs.netProfit)}/mes
               </Badge>
             </div>
           </div>
@@ -775,6 +811,51 @@ export default function Home() {
               <p className="text-[10px] text-stone-400">huevos/dia min</p>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Update Button Bar */}
+        <div className="flex items-center justify-between mb-4 p-3 rounded-xl bg-white border-2 border-dashed transition-all duration-300 ${
+          hasPendingChanges 
+            ? 'border-amber-400 bg-amber-50/50 shadow-sm' 
+            : 'border-green-300 bg-green-50/30'
+        }">
+          <div className="flex items-center gap-2.5">
+            {hasPendingChanges ? (
+              <>
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">Cambios pendientes de actualizar</p>
+                  <p className="text-[11px] text-amber-600">Has realizado cambios en la configuracion. Haz clic en Actualizar para refrescar los numeros.</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-green-800">Calculos actualizados</p>
+                  <p className="text-[11px] text-green-600">Los numeros reflejan la configuracion actual. Puedes hacer cambios y luego actualizar.</p>
+                </div>
+              </>
+            )}
+          </div>
+          <Button
+            onClick={handleUpdateCalculations}
+            className={`shrink-0 font-semibold text-sm px-5 h-10 transition-all duration-200 ${
+              hasPendingChanges
+                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md hover:shadow-lg'
+                : 'bg-green-600 hover:bg-green-700 text-white'
+            }`}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${hasPendingChanges ? 'animate-spin' : ''}`} style={hasPendingChanges ? { animationDuration: '2s' } : {}} />
+            Actualizar
+          </Button>
         </div>
 
         {/* Tabs */}
@@ -997,17 +1078,17 @@ export default function Home() {
                     <div className="mt-3 p-3 bg-amber-50 rounded-lg space-y-2">
                       <div className="flex items-center justify-between">
                         <p className="text-[11px] font-semibold text-amber-900">IMPACTO DE PRECIOS DE ALIMENTO</p>
-                        {calculations.feedPriceImpact !== 0 && (
+                        {liveCalcs.feedPriceImpact !== 0 && (
                           <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            calculations.feedPriceImpact > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                            liveCalcs.feedPriceImpact > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
                           }`}>
-                            {calculations.feedPriceImpact > 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-                            {calculations.feedPriceImpact > 0 ? '+' : ''}{fmtRD(calculations.feedPriceImpact)} vs precios base
+                            {liveCalcs.feedPriceImpact > 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                            {liveCalcs.feedPriceImpact > 0 ? '+' : ''}{fmtRD(liveCalcs.feedPriceImpact)} vs precios base
                           </span>
                         )}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
-                        {calculations.feedCostByPhase.map(fp => (
+                        {liveCalcs.feedCostByPhase.map(fp => (
                           <div key={fp.phaseKey} className={`flex items-center justify-between px-2 py-1.5 rounded ${fp.batchesCount > 0 ? 'bg-white border border-amber-200' : 'bg-amber-100/50 opacity-70'}`}>
                             <div className="flex items-center gap-1.5">
                               <span className={`w-1.5 h-1.5 rounded-full ${fp.batchesCount > 0 ? 'bg-green-500' : 'bg-stone-300'}`}></span>
@@ -1026,10 +1107,10 @@ export default function Home() {
                         ))}
                       </div>
                       <div className="border-t border-amber-200 pt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-amber-800">
-                        <span>Feed total: <strong>{fmtRD(calculations.totalFeedCost)}</strong> ({fmtNum(Math.round(calculations.totalFeedKg))} kg)</span>
-                        <span>Si todos en postura: <strong>{fmtRD(calculations.allPosturaFeedCost)}</strong></span>
-                        <span>Feed/ave postura: <strong>{fmtRD(calculations.feedCostPerLayingBird)}/mes</strong></span>
-                        <span>RD$ ingreso/RD$ feed: <strong>x{calculations.revenuePerFeedRD.toFixed(2)}</strong></span>
+                        <span>Feed total: <strong>{fmtRD(liveCalcs.totalFeedCost)}</strong> ({fmtNum(Math.round(liveCalcs.totalFeedKg))} kg)</span>
+                        <span>Si todos en postura: <strong>{fmtRD(liveCalcs.allPosturaFeedCost)}</strong></span>
+                        <span>Feed/ave postura: <strong>{fmtRD(liveCalcs.feedCostPerLayingBird)}/mes</strong></span>
+                        <span>RD$ ingreso/RD$ feed: <strong>x{liveCalcs.revenuePerFeedRD.toFixed(2)}</strong></span>
                       </div>
                     </div>
                   </CardContent>
@@ -1098,7 +1179,7 @@ export default function Home() {
                       <p className="text-[11px] text-violet-800">
                         Inversion por ave: <strong>{fmtRD(config.chickPrice + config.vaccinesCostPerBird + config.equipmentCostPerBird)}</strong>
                         {' '}(pollita {fmtRD(config.chickPrice)} + vacunas {fmtRD(config.vaccinesCostPerBird)} + equipo {fmtRD(config.equipmentCostPerBird)})
-                        {' | '}Con {config.mortalityRate}% mortalidad: <strong>{fmtRD(calculations.newBatchInvestmentWithMortality)}/lote</strong> ({fmtNum(config.hensPerBatch)} aves)
+                        {' | '}Con {config.mortalityRate}% mortalidad: <strong>{fmtRD(liveCalcs.newBatchInvestmentWithMortality)}/lote</strong> ({fmtNum(config.hensPerBatch)} aves)
                       </p>
                     </div>
                   </CardContent>
@@ -1153,7 +1234,7 @@ export default function Home() {
                     </div>
                     <div className="mt-3 p-2.5 bg-stone-100 rounded-lg">
                       <p className="text-[11px] text-stone-700">
-                        Infraestructura total ({batches.length} galpones): <strong>{fmtRD(calculations.infraCost)}</strong>
+                        Infraestructura total ({batches.length} galpones): <strong>{fmtRD(liveCalcs.infraCost)}</strong>
                         {' | '}Galpon 1: {fmtRD(config.shed1Cost)} + {Math.max(0, batches.length - 1)} adicionales x {fmtRD(config.shedAdditionalCost)}
                       </p>
                     </div>
@@ -1257,9 +1338,9 @@ export default function Home() {
                     <div className="mt-3 p-2.5 bg-sky-50 rounded-lg">
                       <p className="text-[11px] text-sky-800">
                         Gastos fijos: <strong>{fmtRD(config.fixedCostsMonthly)}</strong> + Otros: <strong>{fmtRD(config.otherCosts)}</strong> = <strong>{fmtRD(config.fixedCostsMonthly + config.otherCosts)}</strong>
-                        {' | '}Costo por ave/mes: <strong>{fmtRD(calculations.costPerBirdMonthly)}</strong>
-                        {' | '}Ingreso por ave/mes: <strong>{fmtRD(calculations.revenuePerBirdMonthly)}</strong>
-                        {' | '}Punto equilibrio: <strong>{fmtNum(calculations.breakEvenEggsPerDay)} huevos/dia</strong>
+                        {' | '}Costo por ave/mes: <strong>{fmtRD(liveCalcs.costPerBirdMonthly)}</strong>
+                        {' | '}Ingreso por ave/mes: <strong>{fmtRD(liveCalcs.revenuePerBirdMonthly)}</strong>
+                        {' | '}Punto equilibrio: <strong>{fmtNum(liveCalcs.breakEvenEggsPerDay)} huevos/dia</strong>
                       </p>
                     </div>
                   </CardContent>
@@ -1283,7 +1364,7 @@ export default function Home() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-[10px]">
-                        {fmtRD(calculations.structuralMonthlyTotal)}/mes
+                        {fmtRD(liveCalcs.structuralMonthlyTotal)}/mes
                       </Badge>
                       {openSections.estructural ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
                     </div>
@@ -1367,19 +1448,19 @@ export default function Home() {
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                         <div>
                           <span className="text-orange-600 block">Items activos</span>
-                          <span className="font-bold">{calculations.activeStructural} de {calculations.totalStructuralItems}</span>
+                          <span className="font-bold">{liveCalcs.activeStructural} de {liveCalcs.totalStructuralItems}</span>
                         </div>
                         <div>
                           <span className="text-orange-600 block">Costo prorrateado/mes</span>
-                          <span className="font-bold">{fmtRD(calculations.structuralMonthlyTotal)}</span>
+                          <span className="font-bold">{fmtRD(liveCalcs.structuralMonthlyTotal)}</span>
                         </div>
                         <div>
                           <span className="text-orange-600 block">Total anual estimado</span>
-                          <span className="font-bold">{fmtRD(calculations.structuralAnnualTotal)}</span>
+                          <span className="font-bold">{fmtRD(liveCalcs.structuralAnnualTotal)}</span>
                         </div>
                         <div>
                           <span className="text-orange-600 block">% del gasto total</span>
-                          <span className="font-bold">{calculations.totalExpenses > 0 ? (calculations.structuralMonthlyTotal / calculations.totalExpenses * 100).toFixed(1) : '0'}%</span>
+                          <span className="font-bold">{liveCalcs.totalExpenses > 0 ? (liveCalcs.structuralMonthlyTotal / liveCalcs.totalExpenses * 100).toFixed(1) : '0'}%</span>
                         </div>
                       </div>
                     </div>
