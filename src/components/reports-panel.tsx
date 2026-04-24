@@ -172,7 +172,8 @@ function ReportContable({ c, config, structuralExpenses, batches }: { c: ReportC
   const depreciacionMensual = infraTotal / 120 // 10 years linear
   const depreciacionAnual = depreciacionMensual * 12
 
-  // Projection state
+  // Projection state (hidden by default)
+  const [showProjection, setShowProjection] = useState(false)
   const [projYears, setProjYears] = useState(3)
   const [inflHuevo, setInflHuevo] = useState(3)
   const [inflAlimento, setInflAlimento] = useState(5)
@@ -226,135 +227,7 @@ function ReportContable({ c, config, structuralExpenses, batches }: { c: ReportC
 
   return (
     <div className="space-y-4 print:space-y-3">
-      {/* ===== PROJECTION SECTION ===== */}
-      <div className="border border-dashed border-amber-300 bg-amber-50/40 p-3 rounded-lg print:border-amber-400 print:bg-amber-50/60">
-        <h2 className="text-sm font-bold text-stone-800 print:text-sm flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-green-600" /> SISTEMA DE PROYECCION FINANCIERA
-        </h2>
-
-        {/* Controls */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 mb-3 print:grid-cols-4">
-          <SmallInput label="Horizonte (anos)" value={projYears} onChange={v => setProjYears(Math.min(10, Math.max(1, v)))} suffix="anos" />
-          <SmallInput label="Inflacion precio huevo" value={inflHuevo} onChange={setInflHuevo} suffix="%/ano" />
-          <SmallInput label="Inflacion costo alimento" value={inflAlimento} onChange={setInflAlimento} suffix="%/ano" />
-          <SmallInput label="Inflacion gastos fijos" value={inflFijos} onChange={setInflFijos} suffix="%/ano" />
-        </div>
-
-        {/* Summary cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
-          <div className="border-l-4 border-l-green-500 bg-green-50 p-2.5 rounded print:p-2 print:bg-white">
-            <p className="text-[10px] text-stone-500 flex items-center gap-1"><CircleDollarSign className="w-3 h-3" /> Utilidad total {projYears} anos</p>
-            <p className="text-base font-bold text-green-700">{fmtRD(totalUtilidad)}</p>
-          </div>
-          <div className="border-l-4 border-l-blue-500 bg-blue-50 p-2.5 rounded print:p-2 print:bg-white">
-            <p className="text-[10px] text-stone-500 flex items-center gap-1"><CalcIcon className="w-3 h-3" /> Utilidad promedio/ano</p>
-            <p className="text-base font-bold text-blue-700">{fmtRD(avgProfit)}</p>
-          </div>
-          <div className="border-l-4 border-l-amber-500 bg-amber-50 p-2.5 rounded print:p-2 print:bg-white">
-            <p className="text-[10px] text-stone-500 flex items-center gap-1"><TrendingUp className="w-3 h-3" /> Mejor ano</p>
-            <p className="text-base font-bold text-amber-700">Ano {bestYear?.year || '-'} ({fmtRD(bestYear?.utilidad || 0)})</p>
-          </div>
-          <div className="border-l-4 border-l-violet-500 bg-violet-50 p-2.5 rounded print:p-2 print:bg-white">
-            <p className="text-[10px] text-stone-500 flex items-center gap-1"><Receipt className="w-3 h-3" /> Ingresos totales</p>
-            <p className="text-base font-bold text-violet-700">{fmtRD(totalIngresos)}</p>
-          </div>
-        </div>
-
-        {/* Year-by-year projection table */}
-        <h3 className="text-xs font-bold text-stone-700 print:text-xs flex items-center gap-1"><Calendar className="w-3 h-3" /> FLUJO DE CAJA PROYECTADO POR ANO</h3>
-        <div className="overflow-x-auto mt-1">
-          <table className="w-full text-[11px] print:text-[10px] border-collapse">
-            <thead>
-              <tr className="border-b-2 border-stone-300 print:border-b-black bg-stone-100">
-                <th className="text-left py-1 px-1">Ano</th>
-                <th className="text-right py-1 px-1">Ingresos</th>
-                <th className="text-right py-1 px-1">Gastos</th>
-                <th className="text-right py-1 px-1">Utilidad</th>
-                <th className="text-right py-1 px-1">Impuesto 27%</th>
-                <th className="text-right py-1 px-1">Util. Neta</th>
-                <th className="text-right py-1 px-1">Acumulada</th>
-                <th className="text-right py-1 px-1">Margen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projection.map(y => (
-                <tr key={y.year} className="border-b border-stone-100 print:border-b-stone-200 hover:bg-stone-50">
-                  <td className="py-1 px-1 font-medium">{y.year}</td>
-                  <td className="text-right text-green-700">{fmtRD(y.ingresos)}</td>
-                  <td className="text-right text-red-600">{fmtRD(y.gastos)}</td>
-                  <td className={`text-right font-medium ${y.utilidad >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtRD(y.utilidad)}</td>
-                  <td className="text-right text-orange-600">{fmtRD(y.impuesto)}</td>
-                  <td className={`text-right font-medium ${y.utilidadNeta >= 0 ? 'text-green-800' : 'text-red-700'}`}>{fmtRD(y.utilidadNeta)}</td>
-                  <td className={`text-right font-bold ${y.acumulada >= 0 ? 'text-green-800' : 'text-red-600'}`}>{fmtRD(y.acumulada)}</td>
-                  <td className="text-right">{fmtPct(y.margen)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Depreciation table */}
-        <h3 className="text-xs font-bold text-stone-700 mt-3 print:mt-2 print:text-xs flex items-center gap-1"><TrendingDown className="w-3 h-3" /> DEPRECIACION ACUMULADA (10 ANOS LINEAL)</h3>
-        <div className="overflow-x-auto mt-1">
-          <table className="w-full text-[11px] print:text-[10px] border-collapse">
-            <thead>
-              <tr className="border-b border-stone-200 print:border-b-black">
-                <th className="text-left py-1 px-1">Ano</th>
-                <th className="text-right py-1 px-1">Valor Inicial</th>
-                <th className="text-right py-1 px-1">Depreciacion Anual</th>
-                <th className="text-right py-1 px-1">Dep. Acumulada</th>
-                <th className="text-right py-1 px-1">Valor Restante</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: Math.min(projYears, 10) }, (_, i) => {
-                const yr = i + 1
-                const depAcc = depreciacionAnual * yr
-                const remaining = Math.max(0, infraTotal - depAcc)
-                return (
-                  <tr key={yr} className="border-b border-stone-50 print:border-b-stone-200">
-                    <td className="py-1 px-1 font-medium">{yr}</td>
-                    <td className="text-right">{fmtRD(infraTotal)}</td>
-                    <td className="text-right text-stone-500">{fmtRD(depreciacionAnual)}</td>
-                    <td className="text-right">{fmtRD(depAcc)}</td>
-                    <td className="text-right font-medium">{fmtRD(remaining)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Financial ratios */}
-        <h3 className="text-xs font-bold text-stone-700 mt-3 print:mt-2 print:text-xs flex items-center gap-1"><Percent className="w-3 h-3" /> RATIO FINANCIERO POR ANO</h3>
-        <div className="overflow-x-auto mt-1">
-          <table className="w-full text-[11px] print:text-[10px] border-collapse">
-            <thead>
-              <tr className="border-b border-stone-200 print:border-b-black">
-                <th className="text-left py-1 px-1">Ano</th>
-                <th className="text-right py-1 px-1">Margen Utilidad</th>
-                <th className="text-right py-1 px-1">Ratio Gastos/Ingreso</th>
-                <th className="text-right py-1 px-1">Impuesto Est.</th>
-                <th className="text-right py-1 px-1">Util. Despues Imp.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projection.map(y => (
-                <tr key={y.year} className="border-b border-stone-50 print:border-b-stone-200">
-                  <td className="py-1 px-1 font-medium">{y.year}</td>
-                  <td className={`text-right font-medium ${y.margen >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtPct(y.margen)}</td>
-                  <td className="text-right">{fmtPct(y.ratioGastos * 100)}</td>
-                  <td className="text-right text-orange-600">{fmtRD(y.impuesto)}</td>
-                  <td className={`text-right font-medium ${y.utilidadNeta >= 0 ? 'text-green-800' : 'text-red-700'}`}>{fmtRD(y.utilidadNeta)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ===== EXISTING MONTHLY INCOME STATEMENT ===== */}
-      <Separator className="my-2" />
+      {/* ===== ESTADO DE RESULTADOS DEL MES (VISTA BASICA) ===== */}
       <h2 className="text-sm font-bold text-stone-800 print:text-sm flex items-center gap-2">
         <FileSpreadsheet className="w-4 h-4 text-stone-500" /> ESTADO DE RESULTADOS DEL MES
       </h2>
@@ -458,10 +331,176 @@ function ReportContable({ c, config, structuralExpenses, batches }: { c: ReportC
         </div>
       </div>
 
+      {/* ===== TOGGLE PROYECCION ===== */}
+      <Separator className="my-2" />
+      <button
+        onClick={() => setShowProjection(!showProjection)}
+        className="w-full flex items-center justify-between p-3 rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer hover:bg-stone-50 print:hidden ${
+          showProjection ? 'border-amber-400 bg-amber-50/50' : 'border-stone-300 bg-stone-50/50'
+        }"
+      >
+        <div className="flex items-center gap-2">
+          <TrendingUp className={`w-4 h-4 ${showProjection ? 'text-amber-600' : 'text-stone-400'}`} />
+          <div className="text-left">
+            <p className="text-sm font-bold text-stone-800">Proyeccion Financiera</p>
+            <p className="text-[11px] text-stone-500">Flujo de caja, depreciacion e impuestos a {projYears} anos con inflacion</p>
+          </div>
+        </div>
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showProjection ? 'bg-amber-500 text-white' : 'bg-stone-200 text-stone-500'}`}>
+          {showProjection ? '−' : '+'}
+        </div>
+      </button>
+
+      {/* ===== PROJECTION SECTION (EXPANDABLE) ===== */}
+      {showProjection && (
+        <div className="border border-dashed border-amber-300 bg-amber-50/40 p-3 rounded-lg print:border-amber-400 print:bg-amber-50/60">
+          <h2 className="text-sm font-bold text-stone-800 print:text-sm flex items-center gap-2 mb-2">
+            <TrendingUp className="w-4 h-4 text-green-600" /> SISTEMA DE PROYECCION FINANCIERA
+          </h2>
+
+          {/* Quick preset buttons */}
+          <div className="flex gap-1.5 mb-2">
+            {[3, 5, 10].map(yr => (
+              <button
+                key={yr}
+                onClick={() => setProjYears(yr)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                  projYears === yr
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+                }`}
+              >
+                {yr} anos
+              </button>
+            ))}
+          </div>
+
+          {/* Controls */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 print:grid-cols-4">
+            <SmallInput label="Horizonte (anos)" value={projYears} onChange={v => setProjYears(Math.min(10, Math.max(1, v)))} suffix="anos" />
+            <SmallInput label="Inflacion precio huevo" value={inflHuevo} onChange={setInflHuevo} suffix="%/ano" />
+            <SmallInput label="Inflacion costo alimento" value={inflAlimento} onChange={setInflAlimento} suffix="%/ano" />
+            <SmallInput label="Inflacion gastos fijos" value={inflFijos} onChange={setInflFijos} suffix="%/ano" />
+          </div>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
+            <div className="border-l-4 border-l-green-500 bg-green-50 p-2.5 rounded print:p-2 print:bg-white">
+              <p className="text-[10px] text-stone-500 flex items-center gap-1"><CircleDollarSign className="w-3 h-3" /> Utilidad total {projYears} anos</p>
+              <p className="text-base font-bold text-green-700">{fmtRD(totalUtilidad)}</p>
+            </div>
+            <div className="border-l-4 border-l-blue-500 bg-blue-50 p-2.5 rounded print:p-2 print:bg-white">
+              <p className="text-[10px] text-stone-500 flex items-center gap-1"><CalcIcon className="w-3 h-3" /> Utilidad promedio/ano</p>
+              <p className="text-base font-bold text-blue-700">{fmtRD(avgProfit)}</p>
+            </div>
+            <div className="border-l-4 border-l-amber-500 bg-amber-50 p-2.5 rounded print:p-2 print:bg-white">
+              <p className="text-[10px] text-stone-500 flex items-center gap-1"><TrendingUp className="w-3 h-3" /> Mejor ano</p>
+              <p className="text-base font-bold text-amber-700">Ano {bestYear?.year || '-'} ({fmtRD(bestYear?.utilidad || 0)})</p>
+            </div>
+            <div className="border-l-4 border-l-violet-500 bg-violet-50 p-2.5 rounded print:p-2 print:bg-white">
+              <p className="text-[10px] text-stone-500 flex items-center gap-1"><Receipt className="w-3 h-3" /> Ingresos totales</p>
+              <p className="text-base font-bold text-violet-700">{fmtRD(totalIngresos)}</p>
+            </div>
+          </div>
+
+          {/* Year-by-year projection table */}
+          <h3 className="text-xs font-bold text-stone-700 print:text-xs flex items-center gap-1"><Calendar className="w-3 h-3" /> FLUJO DE CAJA PROYECTADO POR ANO</h3>
+          <div className="overflow-x-auto mt-1">
+            <table className="w-full text-[11px] print:text-[10px] border-collapse">
+              <thead>
+                <tr className="border-b-2 border-stone-300 print:border-b-black bg-stone-100">
+                  <th className="text-left py-1 px-1">Ano</th>
+                  <th className="text-right py-1 px-1">Ingresos</th>
+                  <th className="text-right py-1 px-1">Gastos</th>
+                  <th className="text-right py-1 px-1">Utilidad</th>
+                  <th className="text-right py-1 px-1">Impuesto 27%</th>
+                  <th className="text-right py-1 px-1">Util. Neta</th>
+                  <th className="text-right py-1 px-1">Acumulada</th>
+                  <th className="text-right py-1 px-1">Margen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projection.map(y => (
+                  <tr key={y.year} className="border-b border-stone-100 print:border-b-stone-200 hover:bg-stone-50">
+                    <td className="py-1 px-1 font-medium">{y.year}</td>
+                    <td className="text-right text-green-700">{fmtRD(y.ingresos)}</td>
+                    <td className="text-right text-red-600">{fmtRD(y.gastos)}</td>
+                    <td className={`text-right font-medium ${y.utilidad >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtRD(y.utilidad)}</td>
+                    <td className="text-right text-orange-600">{fmtRD(y.impuesto)}</td>
+                    <td className={`text-right font-medium ${y.utilidadNeta >= 0 ? 'text-green-800' : 'text-red-700'}`}>{fmtRD(y.utilidadNeta)}</td>
+                    <td className={`text-right font-bold ${y.acumulada >= 0 ? 'text-green-800' : 'text-red-600'}`}>{fmtRD(y.acumulada)}</td>
+                    <td className="text-right">{fmtPct(y.margen)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Depreciation table */}
+          <h3 className="text-xs font-bold text-stone-700 mt-3 print:mt-2 print:text-xs flex items-center gap-1"><TrendingDown className="w-3 h-3" /> DEPRECIACION ACUMULADA (10 ANOS LINEAL)</h3>
+          <div className="overflow-x-auto mt-1">
+            <table className="w-full text-[11px] print:text-[10px] border-collapse">
+              <thead>
+                <tr className="border-b border-stone-200 print:border-b-black">
+                  <th className="text-left py-1 px-1">Ano</th>
+                  <th className="text-right py-1 px-1">Valor Inicial</th>
+                  <th className="text-right py-1 px-1">Depreciacion Anual</th>
+                  <th className="text-right py-1 px-1">Dep. Acumulada</th>
+                  <th className="text-right py-1 px-1">Valor Restante</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: Math.min(projYears, 10) }, (_, i) => {
+                  const yr = i + 1
+                  const depAcc = depreciacionAnual * yr
+                  const remaining = Math.max(0, infraTotal - depAcc)
+                  return (
+                    <tr key={yr} className="border-b border-stone-50 print:border-b-stone-200">
+                      <td className="py-1 px-1 font-medium">{yr}</td>
+                      <td className="text-right">{fmtRD(infraTotal)}</td>
+                      <td className="text-right text-stone-500">{fmtRD(depreciacionAnual)}</td>
+                      <td className="text-right">{fmtRD(depAcc)}</td>
+                      <td className="text-right font-medium">{fmtRD(remaining)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Financial ratios */}
+          <h3 className="text-xs font-bold text-stone-700 mt-3 print:mt-2 print:text-xs flex items-center gap-1"><Percent className="w-3 h-3" /> RATIO FINANCIERO POR ANO</h3>
+          <div className="overflow-x-auto mt-1">
+            <table className="w-full text-[11px] print:text-[10px] border-collapse">
+              <thead>
+                <tr className="border-b border-stone-200 print:border-b-black">
+                  <th className="text-left py-1 px-1">Ano</th>
+                  <th className="text-right py-1 px-1">Margen Utilidad</th>
+                  <th className="text-right py-1 px-1">Ratio Gastos/Ingreso</th>
+                  <th className="text-right py-1 px-1">Impuesto Est.</th>
+                  <th className="text-right py-1 px-1">Util. Despues Imp.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projection.map(y => (
+                  <tr key={y.year} className="border-b border-stone-50 print:border-b-stone-200">
+                    <td className="py-1 px-1 font-medium">{y.year}</td>
+                    <td className={`text-right font-medium ${y.margen >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtPct(y.margen)}</td>
+                    <td className="text-right">{fmtPct(y.ratioGastos * 100)}</td>
+                    <td className="text-right text-orange-600">{fmtRD(y.impuesto)}</td>
+                    <td className={`text-right font-medium ${y.utilidadNeta >= 0 ? 'text-green-800' : 'text-red-700'}`}>{fmtRD(y.utilidadNeta)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 p-2 bg-stone-50 rounded text-[10px] text-stone-500 print:text-[9px] print:p-1 print:mt-2">
         <strong>Nota para el contable:</strong> Este es un resumen generado automaticamente. Los gastos estructurales estan prorrateados mensualmente.
         Verificar con facturas y comprobantes fiscales. La depreciacion es estimada a 10 anos lineal. El impuesto estimado es 27% (ISR RD).
-        Se recomienda llevar libro diario auxiliar por galpon. Las proyecciones incluyen inflacion configurable.
+        Se recomienda llevar libro diario auxiliar por galpon. {showProjection ? 'Las proyecciones incluyen inflacion configurable.' : 'Puedes habilitar proyecciones financieras con inflacion desde el boton "Proyeccion Financiera".'}
       </div>
     </div>
   )
