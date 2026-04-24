@@ -160,12 +160,18 @@ interface MonthlyRecord {
 // ================================================================
 // DEFAULT CONFIG
 // ================================================================
+
+// Config version - increment to force localStorage reset
+const CONFIG_VERSION = 2
+
+// PRECIOS BASE SANUT NUTRIOVO (RD$/quintal)
+// ================================================================
 const DEFAULT_FEED: Record<PhaseKey, FeedPhase> = {
-  pre_inicio:  { label: 'Pre-Inicio',  consumption: 12,  price: 2800, weeks: 'S0-4' },
-  inicio:      { label: 'Inicio',       consumption: 28,  price: 2600, weeks: 'S4-8' },
-  crecimiento: { label: 'Crecimiento',  consumption: 58,  price: 2400, weeks: 'S8-14' },
-  pre_postura: { label: 'Pre-Postura',  consumption: 85,  price: 2200, weeks: 'S14-18' },
-  postura:     { label: 'Postura',      consumption: 115, price: 1500, weeks: 'S18+' },
+  pre_inicio:  { label: 'Pre-Inicio',  consumption: 12,  price: 1986, weeks: 'S0-4' },
+  inicio:      { label: 'Inicio',       consumption: 28,  price: 1986, weeks: 'S5-10' },
+  crecimiento: { label: 'Crecimiento',  consumption: 58,  price: 1724, weeks: 'S11-15' },
+  pre_postura: { label: 'Pre-Postura',  consumption: 85,  price: 1493, weeks: 'S16-18' },
+  postura:     { label: 'Postura',      consumption: 115, price: 1300, weeks: 'S18+' },
 }
 
 const DEFAULT_CONFIG: FarmConfig = {
@@ -218,11 +224,11 @@ function fmtPct(value: number): string {
 }
 
 function getPhaseFromMonth(month: number): PhaseKey {
-  if (month < 1) return 'pre_inicio'
-  if (month < 2) return 'inicio'
-  if (month < 3.5) return 'crecimiento'
-  if (month < 5) return 'pre_postura'
-  return 'postura'
+  if (month < 1) return 'pre_inicio'      // S0-4 (0-1 mes)
+  if (month < 2.5) return 'inicio'         // S5-10 (1-2.5 meses)
+  if (month < 4) return 'crecimiento'      // S11-15 (2.5-4 meses)
+  if (month < 4.5) return 'pre_postura'    // S16-18 (4-4.5 meses)
+  return 'postura'                          // S18+ (4.5+ meses)
 }
 
 function createDefaultBatches(): BatchConfig[] {
@@ -322,13 +328,22 @@ function ChangeIndicator({ current, original, unit = '' }: { current: number; or
 export default function Home() {
   const [config, setConfig] = useState<FarmConfig>(() => {
     if (typeof window !== 'undefined') {
+      const savedVersion = localStorage.getItem('granja-wd80-config-version')
       const saved = localStorage.getItem('granja-wd80-config')
-      if (saved) {
+      if (saved && savedVersion === String(CONFIG_VERSION)) {
         try {
           const parsed = JSON.parse(saved)
           return { ...DEFAULT_CONFIG, ...parsed, feedPhases: { ...DEFAULT_FEED, ...(parsed.feedPhases || {}) } }
         } catch { /* ignore */ }
+      } else if (saved && savedVersion !== String(CONFIG_VERSION)) {
+        // Version mismatch - reset feed prices to new defaults, keep other config
+        try {
+          const parsed = JSON.parse(saved)
+          localStorage.setItem('granja-wd80-config-version', String(CONFIG_VERSION))
+          return { ...DEFAULT_CONFIG, ...parsed, feedPhases: { ...DEFAULT_FEED } }
+        } catch { /* ignore */ }
       }
+      localStorage.setItem('granja-wd80-config-version', String(CONFIG_VERSION))
     }
     return DEFAULT_CONFIG
   })
