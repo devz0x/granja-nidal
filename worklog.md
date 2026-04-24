@@ -55,3 +55,41 @@ Stage Summary:
 - operations-panel.tsx completely rewritten with full 5-phase feed inventory and editable vaccination calendar
 - Feed inventory now auto-syncs prices from config and shows all Sanut phases
 - Vaccination calendar supports per-batch/shed/cycle customization with inline editing
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Create comprehensive reminders/alerts system for Granja Nidal
+
+Work Log:
+- Created `/home/z/my-project/src/components/reminders-panel.tsx` (1,098 lines)
+- Features implemented:
+  1. 8 reminder categories: Vacunacion, Compra Alimento, Mantenimiento, Pago Servicios, Veterinario, Control Plagas, Infraestructura, Otros
+  2. 4 priority levels: Urgente, Alta, Media, Baja with color-coded borders and badges
+  3. 4 statuses: Pendiente, En Progreso, Completada, Cancelada
+  4. 5 recurrence types: Unica, Diaria, Semanal, Mensual, Trimestral
+  5. Stats dashboard: 5 cards (Activos, Urgentes, Prox 7 dias, Completadas/Mes, Vencidos)
+  6. Alert banner for urgent/overdue reminders with auto-filter link
+  7. Full toolbar: search, 4 filter dropdowns, 2 sort toggles, action buttons
+  8. Add/Edit form with all fields: title, description, category, priority, date, time, batch, recurrence, cost, assigned to, notes
+  9. Reminder cards with countdown timers, priority border, category icons, expandable details
+  10. Quick actions: Complete, Snooze 24h, Edit, Delete
+  11. Recurrence logic: auto-creates next instance when completing recurring reminders
+  12. Print support with clean table format
+  13. Bulk actions: Complete all overdue, Clear old completed (>30 days)
+  14. Auto-refresh every 60 seconds for overdue detection
+  15. localStorage persistence
+- Modified page.tsx:
+  - Added RemindersPanel import
+  - Added Bell icon import from lucide-react
+  - Changed TabsList from grid-cols-7 to grid-cols-8
+  - Added "Alertas" tab trigger with Bell icon
+  - Added TabsContent for reminders tab passing batches, config, fmtRD, fmtNum
+  - Added urgentReminderCount state with localStorage polling (every 2 min)
+  - Added clickable alert badge in header with pulse animation when urgent reminders exist
+- Build verified: compiled successfully with no errors, no lint issues
+
+Stage Summary:
+- New "Alertas" tab added to the app with full reminders management system
+- Header shows red alert badge with count when urgent/overdue reminders exist (clickable to navigate)
+- All data persists to localStorage under 'granja-wd80-reminders'

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table'
 import OperationsPanel from '@/components/operations-panel'
 import ReportsPanel from '@/components/reports-panel'
+import RemindersPanel from '@/components/reminders-panel'
 import {
   Calculator,
   TrendingUp,
@@ -61,6 +62,7 @@ import {
   RefreshCw,
   Eye,
   Printer,
+  Bell,
 } from 'lucide-react'
 
 // ================================================================
@@ -704,6 +706,61 @@ export default function Home() {
   // Config sections use liveCalcs (real-time preview)
   const calculations = displayedCalcs || liveCalcs
 
+  // Count urgent reminders from localStorage for header badge
+  const [urgentReminderCount, setUrgentReminderCount] = useState(0)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('granja-wd80-reminders')
+      if (saved) {
+        const reminders = JSON.parse(saved)
+        const today = new Date().toISOString().split('T')[0]
+        const active = reminders.filter((r: { status: string; dueDate: string; priority: string }) =>
+          r.status !== 'completada' && r.status !== 'cancelada'
+        )
+        const overdue = active.filter((r: { dueDate: string }) => {
+          const due = new Date(r.dueDate)
+          due.setHours(0,0,0,0)
+          const now = new Date()
+          now.setHours(0,0,0,0)
+          return due < now
+        })
+        const urgent = active.filter((r: { priority: string; dueDate: string }) => {
+          const due = new Date(r.dueDate)
+          const diff = Math.ceil((due.getTime() - new Date().getTime()) / (1000*60*60*24))
+          return r.priority === 'urgente' && diff <= 1
+        })
+        setUrgentReminderCount(overdue.length + urgent.length)
+      }
+    } catch { /* ignore */ }
+    // Refresh every 2 minutes
+    const interval = setInterval(() => {
+      try {
+        const saved = localStorage.getItem('granja-wd80-reminders')
+        if (saved) {
+          const reminders = JSON.parse(saved)
+          const today = new Date().toISOString().split('T')[0]
+          const active = reminders.filter((r: { status: string; dueDate: string; priority: string }) =>
+            r.status !== 'completada' && r.status !== 'cancelada'
+          )
+          const overdue = active.filter((r: { dueDate: string }) => {
+            const due = new Date(r.dueDate)
+            due.setHours(0,0,0,0)
+            const now = new Date()
+            now.setHours(0,0,0,0)
+            return due < now
+          })
+          const urgent = active.filter((r: { priority: string; dueDate: string }) => {
+            const due = new Date(r.dueDate)
+            const diff = Math.ceil((due.getTime() - new Date().getTime()) / (1000*60*60*24))
+            return r.priority === 'urgente' && diff <= 1
+          })
+          setUrgentReminderCount(overdue.length + urgent.length)
+        }
+      } catch { /* ignore */ }
+    }, 120000)
+    return () => clearInterval(interval)
+  }, [])
+
   const saveRecord = useCallback(() => {
     const now = new Date()
     // Always use latest live calculations for saving records
@@ -750,6 +807,18 @@ export default function Home() {
               <Badge className={`text-xs ${liveCalcs.netProfit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                 {fmtRD(liveCalcs.netProfit)}/mes
               </Badge>
+              {urgentReminderCount > 0 && (
+                <button
+                  onClick={() => setActiveTab('reminders')}
+                  className="relative cursor-pointer"
+                >
+                  <Badge className="text-xs bg-red-100 text-red-700 hover:bg-red-200 transition-colors cursor-pointer">
+                    <Bell className="w-3 h-3 mr-1" />
+                    {urgentReminderCount} alerta{urgentReminderCount !== 1 ? 's' : ''}
+                  </Badge>
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -876,7 +945,7 @@ export default function Home() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-7 mb-5">
+          <TabsList className="grid w-full grid-cols-8 mb-5">
             <TabsTrigger value="config" className="text-[10px] sm:text-sm">
               <Settings className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
               Config
@@ -900,6 +969,10 @@ export default function Home() {
             <TabsTrigger value="reports" className="text-[10px] sm:text-sm">
               <FileOutput className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
               Reportes
+            </TabsTrigger>
+            <TabsTrigger value="reminders" className="text-[10px] sm:text-sm">
+              <Bell className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
+              Alertas
             </TabsTrigger>
             <TabsTrigger value="history" className="text-[10px] sm:text-sm">
               <FileText className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
@@ -1931,6 +2004,16 @@ export default function Home() {
               calculations={calculations}
               structuralExpenses={structuralExpenses}
               farmName="Granja Nidal"
+            />
+          </TabsContent>
+
+          {/* ============ TAB: RECORDATORIOS / ALERTAS ============ */}
+          <TabsContent value="reminders">
+            <RemindersPanel
+              batches={batches}
+              config={config}
+              fmtRD={fmtRD}
+              fmtNum={fmtNum}
             />
           </TabsContent>
 
