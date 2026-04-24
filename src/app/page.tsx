@@ -49,6 +49,11 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
+  Wrench,
+  Truck,
+  ShieldCheck,
+  MoreHorizontal,
+  Hammer,
 } from 'lucide-react'
 
 // ================================================================
@@ -98,6 +103,42 @@ interface BatchConfig {
   cycleMonth: number
   phase: PhaseKey
 }
+
+// ================================================================
+// STRUCTURAL EXPENSES
+// ================================================================
+type StructuralFrequency = 'unico' | 'mensual' | 'trimestral' | 'semestral' | 'anual'
+
+interface StructuralExpense {
+  id: string
+  description: string
+  amount: number
+  frequency: StructuralFrequency
+  dateAdded: string
+  isActive: boolean
+}
+
+const FREQUENCY_LABELS: Record<StructuralFrequency, string> = {
+  unico: 'Unico (una vez)',
+  mensual: 'Mensual',
+  trimestral: 'Trimestral',
+  semestral: 'Semestral',
+  anual: 'Anual',
+}
+
+const FREQUENCY_MULTIPLIER: Record<StructuralFrequency, number> = {
+  unico: 1,
+  mensual: 12,
+  trimestral: 4,
+  semestral: 2,
+  anual: 1,
+}
+
+const DEFAULT_STRUCTURAL_EXPENSES: StructuralExpense[] = [
+  { id: 'se-1', description: 'Mantenimiento de bebederos y comederos', amount: 5000, frequency: 'trimestral', dateAdded: '', isActive: true },
+  { id: 'se-2', description: 'Desinfeccion de galpones', amount: 8000, frequency: 'trimestral', dateAdded: '', isActive: true },
+  { id: 'se-3', description: 'Reparacion de cercas y techos', amount: 15000, frequency: 'semestral', dateAdded: '', isActive: true },
+]
 
 interface MonthlyRecord {
   id: string
@@ -304,6 +345,15 @@ export default function Home() {
     }
     return []
   })
+  const [structuralExpenses, setStructuralExpenses] = useState<StructuralExpense[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('granja-wd80-structural')
+      if (saved) {
+        try { return JSON.parse(saved) } catch { /* ignore */ }
+      }
+    }
+    return DEFAULT_STRUCTURAL_EXPENSES
+  })
   const [notes, setNotes] = useState('')
   const [activeTab, setActiveTab] = useState('config')
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -312,6 +362,7 @@ export default function Home() {
     ave: true,
     infraestructura: false,
     operacion: true,
+    estructural: true,
   })
 
   // Persist to localStorage
@@ -324,6 +375,9 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem('granja-wd80-records', JSON.stringify(savedRecords))
   }, [savedRecords])
+  useEffect(() => {
+    localStorage.setItem('granja-wd80-structural', JSON.stringify(structuralExpenses))
+  }, [structuralExpenses])
 
   const toggleSection = useCallback((key: string) => {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }))
@@ -455,7 +509,16 @@ export default function Home() {
     const totalFeedCost = batchDetails.reduce((s, b) => s + b.monthlyFeedCost, 0)
     const totalFeedKg = batchDetails.reduce((s, b) => s + b.monthlyFeedKg, 0)
     const totalRevenue = totalEggRevenue
-    const totalExpenses = totalFeedCost + config.fixedCostsMonthly + config.otherCosts
+
+    // Structural expenses - monthly equivalent
+    const activeStructural = structuralExpenses.filter(e => e.isActive)
+    const structuralMonthlyTotal = activeStructural.reduce((sum, e) => {
+      const mult = FREQUENCY_MULTIPLIER[e.frequency]
+      return sum + (e.amount * mult / 12)
+    }, 0)
+    const structuralAnnualTotal = activeStructural.reduce((sum, e) => sum + e.amount * FREQUENCY_MULTIPLIER[e.frequency], 0)
+
+    const totalExpenses = totalFeedCost + config.fixedCostsMonthly + config.otherCosts + structuralMonthlyTotal
     const netProfit = totalRevenue - totalExpenses
     const layingBatches = batches.filter(b => b.isLaying).length
     const totalHens = batches.reduce((s, b) => s + b.hens, 0)
@@ -527,8 +590,12 @@ export default function Home() {
       breakEvenEggsPerDay,
       dailyExpenses,
       layingBirds,
+      structuralMonthlyTotal,
+      structuralAnnualTotal,
+      activeStructural: activeStructural.length,
+      totalStructuralItems: structuralExpenses.length,
     }
-  }, [batches, config])
+  }, [batches, config, structuralExpenses])
 
   const saveRecord = useCallback(() => {
     const now = new Date()
@@ -1088,6 +1155,127 @@ export default function Home() {
                 )}
               </Card>
 
+              {/* Section 6: GASTOS ESTRUCTURALES */}
+              <Card>
+                <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => toggleSection('estructural')}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                        <Hammer className="w-4 h-4 text-orange-700" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-sm">Gastos Estructurales y Periodicos</CardTitle>
+                        <CardDescription className="text-[11px]">
+                          Reparaciones, remplazos, mejoras, bioseguridad. Se prorratean al costo mensual.
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px]">
+                        {fmtRD(calculations.structuralMonthlyTotal)}/mes
+                      </Badge>
+                      {openSections.estructural ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
+                    </div>
+                  </div>
+                </CardHeader>
+                {openSections.estructural && (
+                  <CardContent>
+                    <div className="space-y-3">
+                      {structuralExpenses.length === 0 ? (
+                        <div className="text-center py-6 text-stone-400">
+                          <Hammer className="w-8 h-8 mx-auto mb-1 opacity-30" />
+                          <p className="text-xs">No hay gastos estructurales registrados.</p>
+                        </div>
+                      ) : (
+                        structuralExpenses.map((expense) => (
+                          <div key={expense.id} className={`flex items-center gap-3 p-3 rounded-lg border ${expense.isActive ? 'border-stone-200 bg-white' : 'border-stone-100 bg-stone-50 opacity-60'}`}>
+                            <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                              <div className="col-span-1 sm:col-span-2">
+                                <Input
+                                  type="text"
+                                  value={expense.description}
+                                  onChange={e => setStructuralExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, description: e.target.value } : ex))}
+                                  className="text-xs h-7"
+                                  placeholder="Descripcion del gasto..."
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <Input
+                                  type="number"
+                                  value={expense.amount}
+                                  onChange={e => setStructuralExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, amount: parseFloat(e.target.value) || 0 } : ex))}
+                                  className="text-xs h-7 w-28"
+                                  prefix="RD$"
+                                  placeholder="Monto"
+                                />
+                                <select
+                                  value={expense.frequency}
+                                  onChange={e => setStructuralExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, frequency: e.target.value as StructuralFrequency } : ex))}
+                                  className="text-xs h-7 rounded-md border border-input bg-background px-2 min-w-[100px]"
+                                >
+                                  {(Object.entries(FREQUENCY_LABELS) as [StructuralFrequency, string][]).map(([key, label]) => (
+                                    <option key={key} value={key}>{label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className="text-[10px] text-stone-400">
+                                ~{fmtRD(expense.amount * FREQUENCY_MULTIPLIER[expense.frequency] / 12)}/mes
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => setStructuralExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, isActive: !ex.isActive } : ex))}
+                                  className={`text-[10px] px-1.5 py-0.5 rounded ${expense.isActive ? 'bg-green-100 text-green-700' : 'bg-stone-100 text-stone-400'}`}
+                                >
+                                  {expense.isActive ? 'Activo' : 'Inactivo'}
+                                </button>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500"
+                                  onClick={() => setStructuralExpenses(prev => prev.filter(ex => ex.id !== expense.id))}>
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                      <Button variant="outline" size="sm" className="w-full gap-2 text-xs"
+                        onClick={() => setStructuralExpenses(prev => [...prev, {
+                          id: `se-${Date.now()}`,
+                          description: '',
+                          amount: 0,
+                          frequency: 'unico' as StructuralFrequency,
+                          dateAdded: new Date().toISOString(),
+                          isActive: true,
+                        }])}>
+                        <Plus className="w-3.5 h-3.5" /> Agregar gasto estructural
+                      </Button>
+                    </div>
+                    {/* Summary */}
+                    <div className="mt-3 p-2.5 bg-orange-50 rounded-lg">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                        <div>
+                          <span className="text-orange-600 block">Items activos</span>
+                          <span className="font-bold">{calculations.activeStructural} de {calculations.totalStructuralItems}</span>
+                        </div>
+                        <div>
+                          <span className="text-orange-600 block">Costo prorrateado/mes</span>
+                          <span className="font-bold">{fmtRD(calculations.structuralMonthlyTotal)}</span>
+                        </div>
+                        <div>
+                          <span className="text-orange-600 block">Total anual estimado</span>
+                          <span className="font-bold">{fmtRD(calculations.structuralAnnualTotal)}</span>
+                        </div>
+                        <div>
+                          <span className="text-orange-600 block">% del gasto total</span>
+                          <span className="font-bold">{calculations.totalExpenses > 0 ? (calculations.structuralMonthlyTotal / calculations.totalExpenses * 100).toFixed(1) : '0'}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+
               {/* Bottom actions */}
               <div className="flex flex-wrap gap-3 pt-2">
                 <Button onClick={saveRecord} className="gap-2">
@@ -1287,6 +1475,7 @@ export default function Home() {
                         { label: 'Alimentacion', value: calculations.totalFeedCost, color: 'bg-amber-500' },
                         { label: 'Gastos Fijos', value: config.fixedCostsMonthly, color: 'bg-stone-500' },
                         { label: 'Otros Gastos', value: config.otherCosts, color: 'bg-violet-500' },
+                        ...(calculations.structuralMonthlyTotal > 0 ? [{ label: 'Gastos Estructurales', value: calculations.structuralMonthlyTotal, color: 'bg-orange-500' }] : []),
                       ].map(item => {
                         const pct = calculations.totalExpenses > 0 ? (item.value / calculations.totalExpenses) * 100 : 0
                         return (
@@ -1343,6 +1532,12 @@ export default function Home() {
                         <span>Otros</span>
                         <span className="text-red-600">{fmtRD(config.otherCosts)}</span>
                       </div>
+                      {calculations.structuralMonthlyTotal > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span>Estructurales (prorrateado)</span>
+                          <span className="text-red-600">{fmtRD(calculations.structuralMonthlyTotal)}</span>
+                        </div>
+                      )}
                       <Separator />
                       <div className="flex justify-between text-sm">
                         <span className="font-bold">Total Gastos</span>
