@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -18,9 +17,9 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Banknote, TrendingUp, TrendingDown, Plus, Trash2, Printer, ChevronDown, ChevronUp,
-  ArrowUpRight, ArrowDownRight, Wallet, Landmark, Hammer, PiggyBank, Calendar,
-  Filter, AlertTriangle, CheckCircle2, CircleDollarSign, FileSpreadsheet,
+  Banknote, TrendingUp, TrendingDown, Plus, Trash2, Printer, ChevronLeft, ChevronDown, ChevronUp,
+  ArrowUpRight, ArrowDownRight, Wallet, Landmark, Hammer, Calendar,
+  Filter, CheckCircle2, CircleDollarSign, FileSpreadsheet, ClipboardList, Sparkles,
 } from 'lucide-react'
 
 // ================================================================
@@ -933,22 +932,4 @@ function StatementActivityRow({
   )
 }
 
-// Need these imports at the top level
-function Sparkles({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-      <path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
-    </svg>
-  )
-}
 
-function ClipboardList({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
-      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-      <path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" />
-    </svg>
-  )
-}
