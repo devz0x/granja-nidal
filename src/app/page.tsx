@@ -43,6 +43,10 @@ import {
 // MAIN COMPONENT
 // ================================================================
 export default function Home() {
+  // ---- Hydration guard ----
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
   // ---- Navigation state ----
   const [view, setView] = useState<'dashboard' | 'lot-detail' | 'reports' | 'history' | 'map' | 'reminders'>('dashboard')
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
@@ -278,6 +282,10 @@ export default function Home() {
   // ================================================================
   // RENDER
   // ================================================================
+  if (!mounted) {
+    return <div className="min-h-screen flex flex-col bg-gradient-to-br from-stone-50 to-amber-50/30" />
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-stone-50 to-amber-50/30">
       {/* Header */}
