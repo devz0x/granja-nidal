@@ -169,3 +169,26 @@ Stage Summary:
 - Mapa: 16:9 fijo, cielo con nubes animadas, sol, cesped, cerca perimetral, puerta, silo, tanque de agua, gallinas caminando, letrero
 - Tooltip Pokemon: Fondo crema, borde negro, header con color de fase, datos de produccion/crianza, barra de progreso de ciclo
 - Sin overlapping: Todas las posiciones son porcentuales dentro de contenedor con aspect-ratio fijo
+
+---
+Task ID: 3
+Agent: main
+Task: Rediseñar vista granja a GTA 2 top-down + arreglar tooltip hover
+
+Work Log:
+- Leido componente farm-map-view.tsx actual (~622 lineas) con estilo Pokemon 90's
+- Reescrito completamente a estetica GTA 2 top-down aerial (previamente en sesion anterior)
+- Bug encontrado: tooltip usaba valores pixel como porcentajes (%), posicionandose fuera de pantalla
+- Bug encontrado: contenedor del mapa tenia overflow-hidden, recortando el tooltip
+- Fix 1: Convertido posicionamiento a porcentajes correctos en handleHover
+- Fix 2: Creado componente FixedTooltip con posicionamiento fixed usando coordenadas del viewport
+- Fix 3: Movido tooltip fuera del contenedor del mapa (wrapper relativo sin overflow-hidden)
+- Fix 4: Agregada logica de colision con bordes del viewport para que nunca se salga
+- Build exitoso sin errores
+
+Stage Summary:
+- Tooltip ahora usa fixed positioning con coordenadas absolutas del viewport
+- El tooltip se ajusta automaticamente si se acercaria al borde de la pantalla
+- z-index 9999 asegura que siempre esta por encima de todo
+- Mapa envuelto en div relativo para permitir que el tooltip se posicione correctamente
+- Contenido del tooltip sin cambios: nombre, fase, aves, postura%, huevos/dia, ingreso/feed/neto, barra ciclo

@@ -164,12 +164,13 @@ export default function FarmMapView({ batches, config, calculations }: FarmMapVi
     if (!map) return
     const mr = map.getBoundingClientRect()
     const er = el.getBoundingClientRect()
-    const cx = er.left - mr.left + er.width / 2
-    const cy = er.top - mr.top
+    // Convert pixel offset to percentage of map container
+    const px = ((er.left - mr.left + er.width / 2) / mr.width) * 100
+    const py = ((er.top - mr.top) / mr.height) * 100
     setTooltipPos({
-      x: cx,
-      y: cy,
-      side: cx > mr.width / 2 ? 'left' : 'right',
+      x: px,
+      y: py,
+      side: px > 50 ? 'left' : 'right',
     })
   }, [])
 
@@ -199,9 +200,10 @@ export default function FarmMapView({ batches, config, calculations }: FarmMapVi
       </div>
 
       {/* ========= TOP-DOWN MAP ========= */}
+      <div className="relative">
       <div
         ref={mapRef}
-        className="relative w-full border-[3px] border-gray-800 rounded-sm overflow-hidden select-none"
+        className="relative w-full border-[3px] border-gray-800 rounded-sm overflow-visible select-none"
         style={{ aspectRatio: '16 / 9' }}
       >
         {/* Base grass */}
@@ -431,23 +433,12 @@ export default function FarmMapView({ batches, config, calculations }: FarmMapVi
           </svg>
         </div>
 
-        {/* === HOVER TOOLTIP === */}
-        {activeShed && tooltipPos && (
-          <div
-            className="absolute z-50 pointer-events-none"
-            style={{
-              left: tooltipPos.side === 'right'
-                ? `${tooltipPos.x + 2}%`
-                : `${tooltipPos.x - 2}%`,
-              top: `${tooltipPos.y}%`,
-              transform: tooltipPos.side === 'left' ? 'translateX(-100%)' : 'translateX(0)',
-              width: '200px',
-              maxWidth: '200px',
-            }}
-          >
-            <GtaTooltip shed={activeShed} />
-          </div>
-        )}
+      </div>
+
+      {/* === HOVER TOOLTIP (positioned relative to wrapper so it's not clipped) === */}
+      {activeShed && tooltipPos && mapRef.current && (
+        <FixedTooltip mapRef={mapRef} tooltipPos={tooltipPos} shed={activeShed} />
+      )}
       </div>
 
       {/* ========= LEGEND ========= */}
@@ -604,6 +595,63 @@ function GtaTooltip({ shed }: {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ================================================================
+// FIXED TOOLTIP (uses viewport coords so it's never clipped)
+// ================================================================
+function FixedTooltip({ mapRef, tooltipPos, shed }: {
+  mapRef: React.RefObject<HTMLDivElement | null>
+  tooltipPos: { x: number; y: number; side: 'left' | 'right' }
+  shed: {
+    id: string; name: string; hens: number; layingRate: number
+    isLaying: boolean; cycleMonth: number; phase: PhaseKey
+    eggsPerDay: number; eggRevenue: number; feedCost: number
+    netBalance: number; weeksLabel: string; progress: number
+  }
+}) {
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const mr = map.getBoundingClientRect()
+    const shedCenterX = mr.left + (tooltipPos.x / 100) * mr.width
+    const shedTop = mr.top + (tooltipPos.y / 100) * mr.height
+
+    const offset = 10
+    const tooltipW = 210
+    let left: number
+    if (tooltipPos.side === 'right') {
+      left = shedCenterX + offset
+      // Keep within viewport
+      if (left + tooltipW > window.innerWidth - 10) {
+        left = shedCenterX - tooltipW - offset
+      }
+    } else {
+      left = shedCenterX - tooltipW - offset
+      if (left < 10) {
+        left = shedCenterX + offset
+      }
+    }
+
+    let top = shedTop
+    if (top + 260 > window.innerHeight - 10) {
+      top = window.innerHeight - 270
+    }
+    if (top < 10) top = 10
+
+    setPos({ top, left })
+  }, [mapRef, tooltipPos])
+
+  return (
+    <div
+      className="fixed z-[9999] pointer-events-none"
+      style={{ top: pos.top, left: pos.left, width: '210px', maxWidth: '210px' }}
+    >
+      <GtaTooltip shed={shed} />
     </div>
   )
 }
