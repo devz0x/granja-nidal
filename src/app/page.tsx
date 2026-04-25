@@ -914,7 +914,17 @@ export default function Home() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-bold text-stone-800">Lotes</h2>
-                <Badge variant="outline" className="text-xs">{batches.length} lotes</Badge>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={addBatch}
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Agregar Lote
+                  </Button>
+                  <Badge variant="outline" className="text-xs">{batches.length} lotes</Badge>
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {batches.map(batch => (
