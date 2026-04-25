@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { isSupabaseConfigured, getFarmId, setFarmId as storeFarmId } from '@/lib/supabase'
 import type { FarmConfig, BatchConfig, StructuralExpense, MonthlyRecord } from '@/lib/farm-data'
 import {
-  DEFAULT_CONFIG, DEFAULT_FEED, DEFAULT_STRUCTURAL_EXPENSES, createDefaultBatches,
+  DEFAULT_CONFIG, DEFAULT_FEED, DEFAULT_STRUCTURAL_EXPENSES,
 } from '@/lib/farm-data'
 
 // ================================================================
@@ -46,7 +46,7 @@ export function saveLocalConfig(config: FarmConfig): void {
 // BATCHES - LocalStorage
 // ================================================================
 export function getLocalBatches(): BatchConfig[] {
-  return readLS<BatchConfig[]>('granja-wd80-batches', createDefaultBatches())
+  return readLS<BatchConfig[]>('granja-wd80-batches', [])
 }
 
 export function saveLocalBatches(batches: BatchConfig[]): void {

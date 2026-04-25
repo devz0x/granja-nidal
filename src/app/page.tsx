@@ -35,7 +35,7 @@ import type {
 import {
   DEFAULT_CONFIG, DEFAULT_FEED, DEFAULT_STRUCTURAL_EXPENSES, PHASE_COLORS,
   FREQUENCY_LABELS, FREQUENCY_MULTIPLIER, PHASE_KEYS,
-  fmtRD, fmtNum, fmtPct, getPhaseFromMonth, createDefaultBatches,
+  fmtRD, fmtNum, fmtPct, getPhaseFromMonth,
   computeCalculations, getAlertCountForBatch, getUrgentReminderCount,
 } from '@/lib/farm-data'
 import {
@@ -565,7 +565,7 @@ export default function Home() {
         try { return JSON.parse(saved) } catch { /* ignore */ }
       }
     }
-    return createDefaultBatches()
+    return []
   })
   const [savedRecords, setSavedRecords] = useState<MonthlyRecord[]>(() => {
     if (typeof window !== 'undefined') {
@@ -645,7 +645,7 @@ export default function Home() {
 
   const resetAll = useCallback(() => {
     setConfig(DEFAULT_CONFIG)
-    setBatches(createDefaultBatches())
+    setBatches([])
     setNotes('')
     localStorage.removeItem('granja-wd80-config')
     localStorage.removeItem('granja-wd80-batches')
