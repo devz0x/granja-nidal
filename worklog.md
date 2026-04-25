@@ -212,3 +212,52 @@ Stage Summary:
 - Lot detail view: breadcrumb + lot header + sub-tabs (General, Producción, Feed, Salud, Finanzas, Alertas)
 - Config accessible from gear icon as slide-out sheet
 - All state, localStorage keys, calculations, auto-reminders preserved
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Implement complete history system for Granja Nidal
+
+Work Log:
+- Read worklog.md and all relevant source files (operations-panel.tsx, page.tsx, lot-detail.tsx, farm-data.ts)
+- Initialized fullstack dev environment
+
+1. **localStorage persistence for daily entries** (operations-panel.tsx):
+   - Added constant `LS_DAILY_ENTRIES = 'granja-wd80-daily-entries'`
+   - Changed `dailyEntries` useState initializer to load from localStorage
+   - Added useEffect to persist dailyEntries to localStorage on change
+
+2. **Created src/lib/history.ts** (~230 lines):
+   - Types: DailyEntry, WeekSummary, MonthSummary
+   - `getDailyEntries()` - Loads from localStorage, enriches with batch names from 'granja-wd80-batches'
+   - `deleteDailyEntry(id)` - Removes entry and persists
+   - `getEntriesForBatch(entries, batchId)` - Filters by batch
+   - `getEntriesForDateRange(entries, start, end)` - Filters by date range
+   - `getWeekSummaries(entries, weeksBack=8)` - Groups by Monday-Sunday weeks, calculates averages
+   - `getMonthSummaries(entries, monthsBack=12)` - Groups by month, Spanish month labels
+   - Helper functions: getMonday, getSunday, getMonthKey, getMonthLabel, computeBatchSummaries
+   - Division-by-zero protection on all averages
+
+3. **Enhanced History view** (page.tsx):
+   - Created `HistoryView` component with 3 sub-tabs: Diario, Semanal, Mensual
+   - **Diario tab**: Full daily entries table with batch filter dropdown, date range filters, clear button, summary stats (total huevos, prom/dia, mortalidad, feed total), delete per entry
+   - **Semanal tab**: Auto-calculated weekly summaries for last 8 weeks, expandable per-batch breakdown, stats cards (total huevos, mort/dia, feed/dia, agua total)
+   - **Mensual tab**: Auto-calculated monthly summaries from daily entries + preserved existing MonthlyRecord system (savedRecords) with notes, expand/delete records, print button
+   - Replaced inline history view with `<HistoryView>` component call
+
+4. **Added Historial sub-tab** (lot-detail.tsx):
+   - Added 'historial' to LotSubTab type union
+   - Added Clock icon import from lucide-react
+   - Added HistorialTab entry to SUB_TABS array
+   - Added conditional render for activeSubTab === 'historial'
+   - Created `HistorialTab` component: loads entries from localStorage via getDailyEntries(), filters by batch.id, shows summary stats (registros, total huevos, prom/dia, mortalidad, feed total, huevos rotos), scrollable table with dates/eggs/broken/mortality/feed/water, empty state with Clock icon
+
+- Build verified: compiled successfully with no errors
+
+Stage Summary:
+- 4 files modified/created: operations-panel.tsx, history.ts (new), page.tsx, lot-detail.tsx
+- Daily production entries now persist across page reloads via localStorage
+- History view completely redesigned with 3-tab system (Diario/Semanal/Mensual)
+- Week and month aggregation logic with Spanish labels and per-batch breakdowns
+- Lot detail now has "Historial" sub-tab showing per-batch daily entries
+- All text in Spanish, minimalist stone color scheme, existing shadcn/ui components

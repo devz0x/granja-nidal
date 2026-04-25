@@ -22,6 +22,8 @@ import ReportsPanel from '@/components/reports-panel'
 import RemindersPanel from '@/components/reminders-panel'
 import FarmMapView from '@/components/farm-map-view'
 import { generateRemindersForNewBatch, generatePhaseChangeReminders, generateCycleWarningReminder, clearAutoRemindersForBatch } from '@/lib/auto-reminders'
+import { getDailyEntries, deleteDailyEntry, getEntriesForBatch, getEntriesForDateRange, getWeekSummaries, getMonthSummaries } from '@/lib/history'
+import type { DailyEntry, WeekSummary, MonthSummary } from '@/lib/history'
 import type {
   PhaseKey, FarmConfig, BatchConfig, StructuralExpense, StructuralFrequency,
   MonthlyRecord,
@@ -38,6 +40,446 @@ import {
   RefreshCw, Bell, Map, FileOutput, ClipboardCheck, ChevronLeft, ChevronDown, ChevronUp, Eye,
   Plus, Trash2, Printer,
 } from 'lucide-react'
+
+// ================================================================
+// HISTORY VIEW COMPONENT (3-tab: Diario / Semanal / Mensual)
+// ================================================================
+function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord, deleteRecord, goBack, notes, setNotes, setSavedRecords }: {
+  batches: BatchConfig[]
+  savedRecords: MonthlyRecord[]
+  expandedRecord: string | null
+  setExpandedRecord: (id: string | null) => void
+  deleteRecord: (id: string) => void
+  goBack: () => void
+  notes: string
+  setNotes: (v: string) => void
+  setSavedRecords: (r: MonthlyRecord[]) => void
+}) {
+  const [historyTab, setHistoryTab] = useState<'diario' | 'semanal' | 'mensual'>('diario')
+
+  // Diario state
+  const [dailyEntries, setDailyEntries] = useState<DailyEntry[]>([])
+  const [filterBatch, setFilterBatch] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+
+  // Refresh daily entries
+  useEffect(() => {
+    let entries = getDailyEntries()
+    if (filterBatch !== 'all') entries = getEntriesForBatch(entries, filterBatch)
+    if (dateFrom) entries = getEntriesForDateRange(entries, dateFrom, dateTo || '9999-12-31')
+    if (dateTo) entries = getEntriesForDateRange(entries, dateFrom || '0000-01-01', dateTo)
+    setDailyEntries(entries.sort((a, b) => b.date.localeCompare(a.date)))
+  }, [filterBatch, dateFrom, dateTo, savedRecords])
+
+  const handleDeleteEntry = (id: string) => {
+    const updated = deleteDailyEntry(id)
+    // Re-filter after delete
+    let entries = updated
+    if (filterBatch !== 'all') entries = getEntriesForBatch(entries, filterBatch)
+    if (dateFrom) entries = getEntriesForDateRange(entries, dateFrom, dateTo || '9999-12-31')
+    if (dateTo) entries = getEntriesForDateRange(entries, dateFrom || '0000-01-01', dateTo)
+    setDailyEntries(entries.sort((a, b) => b.date.localeCompare(a.date)))
+  }
+
+  // Semanal state
+  const allDailyEntries = useMemo(() => getDailyEntries(), [savedRecords])
+  const weekSummaries = useMemo(() => getWeekSummaries(allDailyEntries, 8), [allDailyEntries])
+  const [expandedWeek, setExpandedWeek] = useState<string | null>(null)
+
+  // Mensual state
+  const monthSummaries = useMemo(() => getMonthSummaries(allDailyEntries, 12), [allDailyEntries])
+
+  // Summary stats for daily tab
+  const totalEggs = dailyEntries.reduce((s, e) => s + e.eggsCollected, 0)
+  const totalMortality = dailyEntries.reduce((s, e) => s + e.mortality, 0)
+  const totalFeed = dailyEntries.reduce((s, e) => s + e.feedKg, 0)
+  const avgEggs = dailyEntries.length > 0 ? Math.round(totalEggs / dailyEntries.length) : 0
+
+  const subTabs: { key: typeof historyTab; label: string }[] = [
+    { key: 'diario', label: 'Diario' },
+    { key: 'semanal', label: 'Semanal' },
+    { key: 'mensual', label: 'Mensual' },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 mb-4">
+        <Button variant="ghost" size="sm" onClick={goBack} className="gap-1 text-xs h-8">
+          <ChevronLeft className="w-4 h-4" /> Volver
+        </Button>
+        <h2 className="text-lg font-bold text-stone-800">Historial</h2>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex items-center gap-1 overflow-x-auto pb-1">
+        {subTabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setHistoryTab(tab.key)}
+            className={`px-4 py-2 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+              historyTab === tab.key
+                ? 'bg-stone-900 text-white shadow-sm'
+                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* =================== DIARIO TAB =================== */}
+      {historyTab === 'diario' && (
+        <div className="space-y-4">
+          {/* Filters */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Lote</Label>
+                  <select value={filterBatch} onChange={e => setFilterBatch(e.target.value)}
+                    className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full">
+                    <option value="all">Todos</option>
+                    {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Desde</Label>
+                  <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Hasta</Label>
+                  <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">&nbsp;</Label>
+                  <Button variant="outline" size="sm" className="h-8 text-[10px]" onClick={() => { setFilterBatch('all'); setDateFrom(''); setDateTo('') }}>
+                    Limpiar filtros
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Summary Stats */}
+          {dailyEntries.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="bg-green-50 rounded-lg p-3 text-center">
+                <p className="text-[9px] text-stone-400">Total Huevos</p>
+                <p className="text-sm font-bold text-green-700">{fmtNum(totalEggs)}</p>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-3 text-center">
+                <p className="text-[9px] text-stone-400">Promedio/Dia</p>
+                <p className="text-sm font-bold text-amber-700">{fmtNum(avgEggs)}</p>
+              </div>
+              <div className="bg-red-50 rounded-lg p-3 text-center">
+                <p className="text-[9px] text-stone-400">Mortalidad Total</p>
+                <p className="text-sm font-bold text-red-600">{totalMortality}</p>
+              </div>
+              <div className="bg-stone-50 rounded-lg p-3 text-center">
+                <p className="text-[9px] text-stone-400">Feed Total</p>
+                <p className="text-sm font-bold text-stone-700">{totalFeed.toFixed(1)} kg</p>
+              </div>
+            </div>
+          )}
+
+          {/* Table */}
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="text-sm font-semibold text-stone-700 mb-3">Registros Diarios ({dailyEntries.length})</h3>
+              {dailyEntries.length > 0 ? (
+                <div className="max-h-[500px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-[10px]">Fecha</TableHead>
+                        <TableHead className="text-[10px]">Lote</TableHead>
+                        <TableHead className="text-[10px] text-right">Huevos</TableHead>
+                        <TableHead className="text-[10px] text-right">Rotos</TableHead>
+                        <TableHead className="text-[10px] text-right">Mort.</TableHead>
+                        <TableHead className="text-[10px] text-right">Feed(kg)</TableHead>
+                        <TableHead className="text-[10px] text-right">Agua(L)</TableHead>
+                        <TableHead className="text-[10px]">Notas</TableHead>
+                        <TableHead className="text-[10px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dailyEntries.map(entry => (
+                        <TableRow key={entry.id}>
+                          <TableCell className="text-[11px]">{entry.date}</TableCell>
+                          <TableCell className="text-[11px]"><Badge variant="outline" className="text-[9px]">{entry.batchName}</Badge></TableCell>
+                          <TableCell className="text-[11px] text-right font-medium">{fmtNum(entry.eggsCollected)}</TableCell>
+                          <TableCell className="text-[11px] text-right text-red-400">{entry.eggsBroken || '-'}</TableCell>
+                          <TableCell className="text-[11px] text-right text-red-600">{entry.mortality || '-'}</TableCell>
+                          <TableCell className="text-[11px] text-right">{entry.feedKg || '-'}</TableCell>
+                          <TableCell className="text-[11px] text-right">{entry.waterLiters || '-'}</TableCell>
+                          <TableCell className="text-[11px] text-stone-400 max-w-[120px] truncate">{entry.notes || '-'}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500"
+                              onClick={() => handleDeleteEntry(entry.id)}>
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center py-10 text-stone-400">
+                  <ClipboardCheck className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                  <p className="text-xs">Sin registros diarios.</p>
+                  <p className="text-[10px] mt-1">Registra produccion en la pestana de un lote.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* =================== SEMANAL TAB =================== */}
+      {historyTab === 'semanal' && (
+        <div className="space-y-4">
+          {weekSummaries.length > 0 ? (
+            <div className="space-y-2">
+              {weekSummaries.map(ws => (
+                <Card key={ws.weekStart}>
+                  <CardContent className="p-4">
+                    <div
+                      className="cursor-pointer"
+                      onClick={() => setExpandedWeek(expandedWeek === ws.weekStart ? null : ws.weekStart)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform ${expandedWeek === ws.weekStart ? 'rotate-180' : ''}`} />
+                          <span className="text-sm font-semibold text-stone-700">Semana</span>
+                          <span className="text-[11px] text-stone-500">{ws.weekStart} al {ws.weekEnd}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <p className="text-[10px] text-stone-400">Prom. Huevos/dia</p>
+                            <p className="text-sm font-bold text-green-700">{fmtNum(ws.avgEggsPerDay)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-stone-400">Mort. Total</p>
+                            <p className="text-sm font-bold text-red-600">{ws.totalMortality}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-stone-400">Feed Total</p>
+                            <p className="text-sm font-bold text-amber-700">{ws.totalFeedKg} kg</p>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Stats row */}
+                      <div className="grid grid-cols-4 gap-2 mt-2">
+                        <div className="bg-green-50 rounded p-1.5 text-center">
+                          <p className="text-[8px] text-stone-400">Total Huevos</p>
+                          <p className="text-xs font-bold">{fmtNum(ws.totalEggs)}</p>
+                        </div>
+                        <div className="bg-red-50 rounded p-1.5 text-center">
+                          <p className="text-[8px] text-stone-400">Mort./dia</p>
+                          <p className="text-xs font-bold">{ws.avgMortalityPerDay}</p>
+                        </div>
+                        <div className="bg-amber-50 rounded p-1.5 text-center">
+                          <p className="text-[8px] text-stone-400">Feed/dia</p>
+                          <p className="text-xs font-bold">{ws.avgFeedPerDay} kg</p>
+                        </div>
+                        <div className="bg-sky-50 rounded p-1.5 text-center">
+                          <p className="text-[8px] text-stone-400">Agua Total</p>
+                          <p className="text-xs font-bold">{ws.totalWaterL} L</p>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Expanded: per-batch breakdown */}
+                    {expandedWeek === ws.weekStart && ws.batchSummaries.length > 0 && (
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-[10px] font-semibold text-stone-500 mb-2">Por Lote:</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {ws.batchSummaries.map(bs => (
+                            <div key={bs.batchId} className="bg-stone-50 rounded-lg p-2">
+                              <p className="text-[10px] font-medium text-stone-600">{bs.batchName}</p>
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-[9px] text-stone-400">Total: {fmtNum(bs.totalEggs)}</span>
+                                <span className="text-[9px] text-green-600 font-medium">Prom/dia: {fmtNum(bs.avgEggs)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-10 text-center text-stone-400">
+                <ClipboardCheck className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                <p className="text-xs">Sin datos suficientes para resumenes semanales.</p>
+                <p className="text-[10px] mt-1">Registra produccion diaria para ver resumenes.</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* =================== MENSUAL TAB =================== */}
+      {historyTab === 'mensual' && (
+        <div className="space-y-4">
+          {/* Auto-calculated monthly summaries from daily entries */}
+          {monthSummaries.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <ClipboardCheck className="w-4 h-4 text-green-600" /> Resumen Mensual (Automatico)
+                </CardTitle>
+                <CardDescription className="text-[11px]">Calculado a partir de registros diarios ({monthSummaries.length} meses con datos)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                  {monthSummaries.map(ms => (
+                    <div key={ms.month} className="border rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-stone-700 capitalize">{ms.monthLabel}</span>
+                          <Badge variant="outline" className="text-[9px]">{ms.daysRecorded} dias</Badge>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <p className="text-[9px] text-stone-400">Total Huevos</p>
+                            <p className="text-xs font-bold text-green-700">{fmtNum(ms.totalEggs)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[9px] text-stone-400">Prom/dia</p>
+                            <p className="text-xs font-bold text-amber-700">{fmtNum(ms.avgEggsPerDay)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[9px] text-stone-400">Mortalidad</p>
+                            <p className="text-xs font-bold text-red-600">{ms.totalMortality}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[9px] text-stone-400">Feed</p>
+                            <p className="text-xs font-bold text-stone-700">{ms.totalFeedKg} kg</p>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Per-batch mini summary */}
+                      {ms.batchSummaries.length > 1 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {ms.batchSummaries.map(bs => (
+                            <Badge key={bs.batchId} variant="outline" className="text-[9px]">
+                              {bs.batchName}: {fmtNum(bs.totalEggs)} huevos ({fmtNum(bs.avgEggs)}/dia)
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Existing saved monthly records (from config) */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-stone-600" /> Registros Guardados
+                  </CardTitle>
+                  <CardDescription className="text-[11px]">Snapshots mensuales guardados manualmente ({savedRecords.length})</CardDescription>
+                </div>
+                {savedRecords.length > 0 && (
+                  <Button variant="outline" size="sm" className="text-[10px] h-7 text-red-500"
+                    onClick={() => { if (confirm('Borrar todos los registros?')) setSavedRecords([]) }}>
+                    <Trash2 className="w-3 h-3 mr-1" /> Borrar todo
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Notes */}
+              <div className="mb-3">
+                <Label className="text-[10px] text-stone-500">Notas del Mes</Label>
+                <textarea
+                  className="w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="Ej: Lote 2 con mortalidad elevada..."
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                />
+              </div>
+              {savedRecords.length === 0 ? (
+                <div className="text-center py-8 text-stone-400">
+                  <FileText className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                  <p className="text-xs">No hay registros guardados.</p>
+                  <p className="text-[10px] mt-1">Guarda un registro desde el panel de configuracion.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                  {savedRecords.map((record) => {
+                    const isExpanded = expandedRecord === record.id
+                    return (
+                      <div key={record.id} className="border rounded-lg overflow-hidden">
+                        <div
+                          className="p-3 cursor-pointer hover:bg-stone-50 transition-colors"
+                          onClick={() => setExpandedRecord(isExpanded ? null : record.id)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                              <span className="font-semibold text-sm">{record.month}</span>
+                              <span className="text-[10px] text-stone-400">{record.date}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px]">{fmtRD(record.config.eggPrice)}/huevo</Badge>
+                              <Badge className={record.net >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                                {fmtRD(record.net)}
+                              </Badge>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-700"
+                                onClick={e => { e.stopPropagation(); setExpandedRecord(isExpanded ? null : record.id) }}>
+                                <Eye className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-red-500"
+                                onClick={e => { e.stopPropagation(); deleteRecord(record.id) }}>
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div className="px-4 pb-3 border-t bg-stone-50/50 space-y-2">
+                            <div className="text-[11px] text-stone-500">
+                              <strong>Notas:</strong> {record.notes || 'Sin notas'}
+                            </div>
+                            <Table>
+                              <TableBody>
+                                <TableRow><TableCell className="text-[11px] font-medium">Lotes activos</TableCell><TableCell className="text-[11px]">{record.batches.filter(b => b.isLaying).length} en postura de {record.batches.length}</TableCell></TableRow>
+                                <TableRow><TableCell className="text-[11px] font-medium">Aves totales</TableCell><TableCell className="text-[11px]">{record.batches.reduce((s, b) => s + b.hens, 0)}</TableCell></TableRow>
+                                <TableRow><TableCell className="text-[11px] font-medium">Ingreso</TableCell><TableCell className="text-[11px] text-green-700">{fmtRD(record.revenue)}</TableCell></TableRow>
+                                <TableRow><TableCell className="text-[11px] font-medium">Gastos</TableCell><TableCell className="text-[11px] text-red-700">{fmtRD(record.expenses)}</TableCell></TableRow>
+                                <TableRow><TableCell className="text-[11px] font-bold">Utilidad Neta</TableCell><TableCell className={`text-[11px] font-bold ${record.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmtRD(record.net)}</TableCell></TableRow>
+                              </TableBody>
+                            </Table>
+                            <div className="flex justify-end gap-2 pt-2">
+                              <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1 text-[10px] h-7">
+                                <Printer className="w-3 h-3" /> Imprimir
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ================================================================
 // MAIN COMPONENT
@@ -564,116 +1006,17 @@ export default function Home() {
 
         {/* ====================== HISTORY VIEW ====================== */}
         {view === 'history' && (
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <Button variant="ghost" size="sm" onClick={goBack} className="gap-1 text-xs h-8">
-                <ChevronLeft className="w-4 h-4" /> Volver
-              </Button>
-              <h2 className="text-lg font-bold text-stone-800">Historial</h2>
-            </div>
-
-            {/* Notes */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Notas del Mes</CardTitle>
-                <CardDescription className="text-[11px">Observaciones o comentarios sobre el mes actual</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <textarea
-                  className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  placeholder="Ej: Lote 2 con mortalidad elevada..."
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                />
-              </CardContent>
-            </Card>
-
-            {/* Records */}
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-stone-600" /> Registros Guardados
-                    </CardTitle>
-                    <CardDescription className="text-[11px]">Historial mensual ({savedRecords.length} registros)</CardDescription>
-                  </div>
-                  {savedRecords.length > 0 && (
-                    <Button variant="outline" size="sm" className="text-[10px] h-7 text-red-500"
-                      onClick={() => { if (confirm('Borrar todos los registros?')) setSavedRecords([]) }}>
-                      <Trash2 className="w-3 h-3 mr-1" /> Borrar todo
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                {savedRecords.length === 0 ? (
-                  <div className="text-center py-10 text-stone-400">
-                    <FileText className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                    <p className="text-sm">No hay registros guardados aun.</p>
-                    <p className="text-xs mt-1">Configura y guarda el primer registro.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-                    {savedRecords.map((record) => {
-                      const isExpanded = expandedRecord === record.id
-                      return (
-                        <div key={record.id} className="border rounded-lg overflow-hidden">
-                          <div
-                            className="p-3 cursor-pointer hover:bg-stone-50 transition-colors"
-                            onClick={() => setExpandedRecord(isExpanded ? null : record.id)}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                <span className="font-semibold text-sm">{record.month}</span>
-                                <span className="text-[10px] text-stone-400">{record.date}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-[10px]">{fmtRD(record.config.eggPrice)}/huevo</Badge>
-                                <Badge className={record.net >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                                  {fmtRD(record.net)}
-                                </Badge>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-700"
-                                  onClick={e => { e.stopPropagation(); setExpandedRecord(isExpanded ? null : record.id) }}>
-                                  <Eye className="w-3.5 h-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-red-500"
-                                  onClick={e => { e.stopPropagation(); deleteRecord(record.id) }}>
-                                  <Trash2 className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                          {isExpanded && (
-                            <div className="px-4 pb-3 border-t bg-stone-50/50 space-y-2">
-                              <div className="text-[11px] text-stone-500">
-                                <strong>Notas:</strong> {record.notes || 'Sin notas'}
-                              </div>
-                              <Table>
-                                <TableBody>
-                                  <TableRow><TableCell className="text-[11px] font-medium">Lotes activos</TableCell><TableCell className="text-[11px]">{record.batches.filter(b => b.isLaying).length} en postura de {record.batches.length}</TableCell></TableRow>
-                                  <TableRow><TableCell className="text-[11px] font-medium">Aves totales</TableCell><TableCell className="text-[11px]">{record.batches.reduce((s, b) => s + b.hens, 0)}</TableCell></TableRow>
-                                  <TableRow><TableCell className="text-[11px] font-medium">Ingreso</TableCell><TableCell className="text-[11px] text-green-700">{fmtRD(record.revenue)}</TableCell></TableRow>
-                                  <TableRow><TableCell className="text-[11px] font-medium">Gastos</TableCell><TableCell className="text-[11px] text-red-700">{fmtRD(record.expenses)}</TableCell></TableRow>
-                                  <TableRow><TableCell className="text-[11px] font-bold">Utilidad Neta</TableCell><TableCell className={`text-[11px] font-bold ${record.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmtRD(record.net)}</TableCell></TableRow>
-                                </TableBody>
-                              </Table>
-                              <div className="flex justify-end gap-2 pt-2">
-                                <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1 text-[10px] h-7">
-                                  <Printer className="w-3 h-3" /> Imprimir
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <HistoryView
+            batches={batches}
+            savedRecords={savedRecords}
+            expandedRecord={expandedRecord}
+            setExpandedRecord={setExpandedRecord}
+            deleteRecord={deleteRecord}
+            goBack={goBack}
+            notes={notes}
+            setNotes={setNotes}
+            setSavedRecords={setSavedRecords}
+          />
         )}
 
         {/* ====================== MAP VIEW ====================== */}

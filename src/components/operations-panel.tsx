@@ -64,6 +64,7 @@ interface FeedInventory {
 // ================================================================
 const LS_VACCINATIONS = 'granja-wd80-vaccinations'
 const LS_FEED_INVENTORY = 'granja-wd80-feed-inventory'
+const LS_DAILY_ENTRIES = 'granja-wd80-daily-entries'
 
 // ================================================================
 // OPERATIONS COMPONENT
@@ -112,7 +113,15 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
   const today = new Date().toISOString().split('T')[0]
 
   // --- State ---
-  const [dailyEntries, setDailyEntries] = useState<DailyProductionEntry[]>([])
+  const [dailyEntries, setDailyEntries] = useState<DailyProductionEntry[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LS_DAILY_ENTRIES)
+      if (saved) {
+        try { return JSON.parse(saved) } catch { /* ignore */ }
+      }
+    }
+    return []
+  })
   const [newEntry, setNewEntry] = useState<Partial<DailyProductionEntry>>({})
 
   // Feed inventory: load from localStorage, ensuring all 5 phases exist
@@ -182,6 +191,10 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
   })
 
   // Persist to localStorage
+  useEffect(() => {
+    localStorage.setItem(LS_DAILY_ENTRIES, JSON.stringify(dailyEntries))
+  }, [dailyEntries])
+
   useEffect(() => {
     localStorage.setItem(LS_FEED_INVENTORY, JSON.stringify(feedInventory))
   }, [feedInventory])

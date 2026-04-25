@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   ArrowLeft, Egg, Wheat, DollarSign, Info, Trash2,
-  BarChart3, ClipboardCheck, Heart,
+  BarChart3, ClipboardCheck, Heart, Clock,
 } from 'lucide-react'
 import type {
   PhaseKey, FarmConfig, BatchConfig, CalculationsResult,
@@ -21,6 +21,8 @@ import {
 } from '@/lib/farm-data'
 import OperationsPanel from '@/components/operations-panel'
 import RemindersPanel from '@/components/reminders-panel'
+import { getDailyEntries } from '@/lib/history'
+import type { DailyEntry } from '@/lib/history'
 
 // ================================================================
 // NUMBER INPUT
@@ -62,7 +64,7 @@ function NumberInput({
 // ================================================================
 // LOT DETAIL SUB-TAB TYPES
 // ================================================================
-type LotSubTab = 'general' | 'produccion' | 'feed' | 'salud' | 'finanzas' | 'alertas'
+type LotSubTab = 'general' | 'produccion' | 'feed' | 'salud' | 'finanzas' | 'alertas' | 'historial'
 
 const SUB_TABS: { key: LotSubTab; label: string; icon: React.ReactNode }[] = [
   { key: 'general', label: 'General', icon: <ClipboardCheck className="w-3.5 h-3.5" /> },
@@ -71,6 +73,7 @@ const SUB_TABS: { key: LotSubTab; label: string; icon: React.ReactNode }[] = [
   { key: 'salud', label: 'Salud', icon: <Heart className="w-3.5 h-3.5" /> },
   { key: 'finanzas', label: 'Finanzas', icon: <DollarSign className="w-3.5 h-3.5" /> },
   { key: 'alertas', label: 'Alertas', icon: <BarChart3 className="w-3.5 h-3.5" /> },
+  { key: 'historial', label: 'Historial', icon: <Clock className="w-3.5 h-3.5" /> },
 ]
 
 // ================================================================
@@ -221,6 +224,9 @@ export default function LotDetail({ batch, totalBatches, calc, config, onBack, u
       )}
       {activeSubTab === 'alertas' && (
         <AlertasTab batch={batch} config={config} />
+      )}
+      {activeSubTab === 'historial' && (
+        <HistorialTab batch={batch} />
       )}
     </div>
   )
@@ -444,5 +450,96 @@ function AlertasTab({ batch, config }: {
 }) {
   return (
     <RemindersPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
+  )
+}
+
+function HistorialTab({ batch }: { batch: BatchConfig }) {
+  const [entries, setEntries] = useState<DailyEntry[]>([])
+
+  useEffect(() => {
+    const all = getDailyEntries()
+    setEntries(all.filter(e => e.batchId === batch.id).sort((a, b) => b.date.localeCompare(a.date)))
+  }, [batch.id])
+
+  // Calcular resumen
+  const totalEggs = entries.reduce((s, e) => s + e.eggsCollected, 0)
+  const avgEggs = entries.length > 0 ? Math.round(totalEggs / entries.length) : 0
+  const totalMortality = entries.reduce((s, e) => s + e.mortality, 0)
+  const totalFeed = entries.reduce((s, e) => s + e.feedKg, 0)
+  const totalBroken = entries.reduce((s, e) => s + e.eggsBroken, 0)
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h3 className="text-sm font-semibold text-stone-700">Historial Diario — {batch.name}</h3>
+
+        {/* Resumen */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="bg-stone-50 rounded-lg p-2 text-center">
+            <p className="text-[9px] text-stone-400">Registros</p>
+            <p className="text-sm font-bold">{entries.length}</p>
+          </div>
+          <div className="bg-green-50 rounded-lg p-2 text-center">
+            <p className="text-[9px] text-stone-400">Total Huevos</p>
+            <p className="text-sm font-bold text-green-700">{fmtNum(totalEggs)}</p>
+          </div>
+          <div className="bg-amber-50 rounded-lg p-2 text-center">
+            <p className="text-[9px] text-stone-400">Prom/dia</p>
+            <p className="text-sm font-bold text-amber-700">{fmtNum(avgEggs)}</p>
+          </div>
+          <div className="bg-red-50 rounded-lg p-2 text-center">
+            <p className="text-[9px] text-stone-400">Mortalidad</p>
+            <p className="text-sm font-bold text-red-600">{totalMortality}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-stone-50 rounded-lg p-2 text-center">
+            <p className="text-[9px] text-stone-400">Feed Total</p>
+            <p className="text-sm font-bold">{totalFeed.toFixed(1)} kg</p>
+          </div>
+          <div className="bg-red-50 rounded-lg p-2 text-center">
+            <p className="text-[9px] text-stone-400">Huevos Rotos</p>
+            <p className="text-sm font-bold text-red-400">{totalBroken}</p>
+          </div>
+        </div>
+
+        {/* Tabla */}
+        {entries.length > 0 ? (
+          <div className="max-h-[400px] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left text-[10px] py-1.5 text-stone-500 font-medium">Fecha</th>
+                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Huevos</th>
+                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Rotos</th>
+                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Mort.</th>
+                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Feed(kg)</th>
+                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Agua(L)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map(entry => (
+                  <tr key={entry.id} className="border-b border-stone-50">
+                    <td className="py-1.5 text-[11px]">{entry.date}</td>
+                    <td className="py-1.5 text-[11px] text-right font-medium">{entry.eggsCollected}</td>
+                    <td className="py-1.5 text-[11px] text-right text-red-400">{entry.eggsBroken || '-'}</td>
+                    <td className="py-1.5 text-[11px] text-right text-red-600">{entry.mortality || '-'}</td>
+                    <td className="py-1.5 text-[11px] text-right">{entry.feedKg || '-'}</td>
+                    <td className="py-1.5 text-[11px] text-right">{entry.waterLiters || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-stone-400">
+            <Clock className="w-10 h-10 mx-auto mb-2 opacity-20" />
+            <p className="text-xs">Sin registros diarios para este lote.</p>
+            <p className="text-[10px] mt-1">Registra produccion en la pestana Produccion.</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
