@@ -1,807 +1,682 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 
 // ================================================================
-// TYPES (mirrored from page.tsx for standalone use)
+// TYPES
 // ================================================================
 type PhaseKey = 'pre_inicio' | 'inicio' | 'crecimiento' | 'pre_postura' | 'postura'
 
 interface BatchConfig {
-  id: string
-  name: string
-  hens: number
-  layingRate: number
-  isLaying: boolean
-  cycleMonth: number
-  phase: PhaseKey
+  id: string; name: string; hens: number; layingRate: number
+  isLaying: boolean; cycleMonth: number; phase: PhaseKey
 }
 
-interface FeedPhase {
-  label: string
-  consumption: number
-  price: number
-  weeks: string
-}
+interface FeedPhase { label: string; consumption: number; price: number; weeks: string }
 
 interface FarmConfig {
-  eggPrice: number
-  henSalePrice: number
-  chickPrice: number
+  eggPrice: number; henSalePrice: number; chickPrice: number
   feedPhases: Record<PhaseKey, FeedPhase>
-  vaccinesCostPerBird: number
-  equipmentCostPerBird: number
-  mortalityRate: number
-  shed1Cost: number
-  shedAdditionalCost: number
-  baseLayingRate: number
-  layingCycleMonths: number
-  hensPerBatch: number
-  fixedCostsMonthly: number
-  otherCosts: number
+  vaccinesCostPerBird: number; equipmentCostPerBird: number; mortalityRate: number
+  shed1Cost: number; shedAdditionalCost: number
+  baseLayingRate: number; layingCycleMonths: number
+  hensPerBatch: number; fixedCostsMonthly: number; otherCosts: number
+}
+
+interface CalcDetail {
+  id: string; name: string; phase: PhaseKey; hens: number
+  isLaying: boolean; layingRate: number; cycleMonth: number
+  eggsPerDay: number; eggsPerMonth: number; eggRevenue: number
+  monthlyFeedCost: number; netBalance: number
 }
 
 interface CalculationsResult {
-  totalRevenue: number
-  totalExpenses: number
-  netProfit: number
-  totalEggs: number
-  totalHens: number
-  layingBatches: number
-  totalFeedKg: number
-  profitMargin: number
-  batchDetails: Array<{
-    id: string
-    name: string
-    phase: PhaseKey
-    hens: number
-    isLaying: boolean
-    layingRate: number
-    cycleMonth: number
-    eggsPerDay: number
-    eggsPerMonth: number
-    eggRevenue: number
-    monthlyFeedCost: number
-    netBalance: number
-  }>
+  totalRevenue: number; totalExpenses: number; netProfit: number
+  totalEggs: number; totalHens: number; layingBatches: number
+  totalFeedKg: number; profitMargin: number
+  batchDetails: CalcDetail[]
 }
 
 interface FarmMapViewProps {
-  batches: BatchConfig[]
-  config: FarmConfig
-  calculations: CalculationsResult
+  batches: BatchConfig[]; config: FarmConfig; calculations: CalculationsResult
 }
 
 // ================================================================
-// RPG THEME CONSTANTS
+// POKEMON PALETTE - flat colors, NO gradients
 // ================================================================
-const PHASE_HUD_COLORS: Record<PhaseKey, { bg: string; border: string; text: string; glow: string; roof: string }> = {
-  pre_inicio: {
-    bg: 'bg-slate-200',
-    border: 'border-slate-400',
-    text: 'text-slate-600',
-    glow: 'shadow-slate-300/50',
-    roof: '#94a3b8',
-  },
-  inicio: {
-    bg: 'bg-sky-200',
-    border: 'border-sky-400',
-    text: 'text-sky-700',
-    glow: 'shadow-sky-300/50',
-    roof: '#38bdf8',
-  },
-  crecimiento: {
-    bg: 'bg-teal-200',
-    border: 'border-teal-400',
-    text: 'text-teal-700',
-    glow: 'shadow-teal-300/50',
-    roof: '#2dd4bf',
-  },
-  pre_postura: {
-    bg: 'bg-amber-200',
-    border: 'border-amber-400',
-    text: 'text-amber-700',
-    glow: 'shadow-amber-300/50',
-    roof: '#fbbf24',
-  },
-  postura: {
-    bg: 'bg-emerald-200',
-    border: 'border-emerald-400',
-    text: 'text-emerald-700',
-    glow: 'shadow-emerald-300/50',
-    roof: '#34d399',
-  },
+const P = {
+  black:     '#111827',
+  outline:   '#1f2937',
+  dark:      '#374151',
+  mid:       '#6b7280',
+  light:     '#d1d5db',
+  white:     '#f3f4f6',
+  cream:     '#fef9c3',
+  sky1:      '#7dd3fc',
+  sky2:      '#bae6fd',
+  grass1:    '#4ade80',
+  grass2:    '#22c55e',
+  grass3:    '#16a34a',
+  grass4:    '#15803d',
+  dirt1:     '#d6d3d1',
+  dirt2:     '#a8a29e',
+  dirt3:     '#78716c',
+  wood1:     '#d97706',
+  wood2:     '#b45309',
+  wood3:     '#92400e',
+  wood4:     '#78350f',
+  wall1:     '#f5f5f4',
+  wall2:     '#e7e5e4',
+  wall3:     '#d6d3d1',
+  red1:      '#ef4444',
+  blue1:     '#3b82f6',
+  yellow1:   '#eab308',
+  yellow2:   '#facc15',
+  yellow3:   '#fde047',
+  pink1:     '#ec4899',
 }
 
-const PHASE_ICONS: Record<PhaseKey, string> = {
-  pre_inicio: '\u{1F423}',    // hatching chick
-  inicio: '\u{1F425}',        // baby chick
-  crecimiento: '\u{1F98B}',   // chicken
-  pre_postura: '\u{1F414}',   // rooster
-  postura: '\u{1F95A}',       // egg
+const PHASE_ROOF: Record<PhaseKey, { main: string; shade: string; light: string }> = {
+  pre_inicio:   { main: '#94a3b8', shade: '#64748b', light: '#cbd5e1' },
+  inicio:       { main: '#38bdf8', shade: '#0284c7', light: '#7dd3fc' },
+  crecimiento:  { main: '#2dd4bf', shade: '#0d9488', light: '#5eead4' },
+  pre_postura:  { main: '#fbbf24', shade: '#d97706', light: '#fde047' },
+  postura:      { main: '#4ade80', shade: '#16a34a', light: '#86efac' },
 }
 
 const PHASE_LABELS: Record<PhaseKey, string> = {
-  pre_inicio: 'Pre-Inicio',
-  inicio: 'Inicio',
-  crecimiento: 'Crecimiento',
-  pre_postura: 'Pre-Postura',
-  postura: 'Postura',
+  pre_inicio: 'Pre-Inicio', inicio: 'Inicio', crecimiento: 'Crecimiento',
+  pre_postura: 'Pre-Postura', postura: 'Postura',
+}
+
+const PHASE_ICONS: Record<PhaseKey, string> = {
+  pre_inicio: '\u{1F423}', inicio: '\u{1F425}', crecimiento: '\u{1F414}',
+  pre_postura: '\u{1F98B}', postura: '\u{1F95A}',
 }
 
 // ================================================================
-// HELPER: Format numbers
+// HELPERS
 // ================================================================
-function fmtNum(value: number): string {
-  return new Intl.NumberFormat('es-DO').format(value)
+function fmtNum(v: number) { return new Intl.NumberFormat('es-DO').format(v) }
+function fmtRD(v: number) {
+  return new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v)
 }
 
-function fmtRD(value: number): string {
-  return new Intl.NumberFormat('es-DO', {
-    style: 'currency',
-    currency: 'DOP',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value)
-}
+// Shed positions in the map (percentage of map container)
+// 2x2 grid, centered, with generous spacing
+const SHED_POSITIONS = [
+  { left: 8,  top: 28 },   // top-left
+  { left: 54, top: 28 },   // top-right
+  { left: 8,  top: 60 },   // bottom-left
+  { left: 54, top: 60 },   // bottom-right
+]
 
 // ================================================================
-// PIXEL ART TREE COMPONENT
+// MAIN COMPONENT
 // ================================================================
-function PixelTree({ variant = 1, x = 0, y = 0 }: { variant?: number; x?: number; y?: number }) {
-  const trunkColor = variant % 2 === 0 ? '#92400e' : '#78350f'
-  const leafColors = [
-    ['#16a34a', '#15803d', '#166534'],
-    ['#22c55e', '#16a34a', '#15803d'],
-    ['#059669', '#047857', '#065f46'],
-  ]
-  const [c1, c2, c3] = leafColors[variant % 3]
+export default function FarmMapView({ batches, config, calculations }: FarmMapViewProps) {
+  const [hoveredShed, setHoveredShed] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+  const mapRef = useRef<HTMLDivElement>(null)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number; align: 'left' | 'right' }>({ x: 0, y: 0, align: 'right' })
+
+  // Slow tick for subtle animations
+  useEffect(() => {
+    const iv = setInterval(() => setTick(t => t + 1), 1500)
+    return () => clearInterval(iv)
+  }, [])
+
+  // Per-shed data
+  const shedData = useMemo(() =>
+    batches.map((b, i) => {
+      const d = calculations.batchDetails?.find(x => x.id === b.id)
+      const fp = config.feedPhases[b.phase]
+      return {
+        ...b, index: i,
+        eggsPerDay: d?.eggsPerDay || 0,
+        eggRevenue: d?.eggRevenue || 0,
+        feedCost: d?.monthlyFeedCost || 0,
+        netBalance: d?.netBalance || 0,
+        feedPhase: fp,
+        weeksLabel: fp?.weeks || '',
+        progress: Math.min(100, (b.cycleMonth / 20) * 100),
+      }
+    }), [batches, calculations, config])
+
+  const handleShedHover = useCallback((shedId: string, idx: number, e: React.MouseEvent) => {
+    setHoveredShed(shedId)
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const mapRect = mapRef.current?.getBoundingClientRect()
+    if (mapRect) {
+      const x = rect.left - mapRect.left + rect.width / 2
+      const y = rect.top - mapRect.top
+      // If shed is on right half, tooltip goes left; otherwise right
+      const align = x > mapRect.width / 2 ? 'right' : 'left'
+      setTooltipPos({ x: align === 'right' ? x - rect.width - 8 : x + rect.width + 8, y: Math.max(0, y - 20), align })
+    }
+  }, [])
+
+  const handleShedLeave = useCallback(() => setHoveredShed(null), [])
+
+  const activeShed = shedData.find(s => s.id === hoveredShed)
 
   return (
-    <svg
-      width="32"
-      height="40"
-      viewBox="0 0 32 40"
-      style={{ position: 'absolute', left: x, top: y, imageRendering: 'pixelated' }}
-    >
+    <div className="space-y-3">
+      {/* ========= POKEMON HUD BAR ========= */}
+      <div className="flex items-stretch border-[3px] border-gray-800 rounded-lg overflow-hidden bg-gray-900">
+        {/* Farm info - left */}
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border-r-[3px] border-gray-800">
+          <div className="w-7 h-7 bg-amber-200 border-2 border-gray-800 rounded flex items-center justify-center text-sm leading-none">
+            &#x1F3E0;
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-gray-800 leading-none">GRANJA NIDAL</p>
+            <p className="text-[8px] text-gray-500 leading-tight">{fmtNum(calculations.totalHens)} aves | {batches.length} galpones</p>
+          </div>
+        </div>
+
+        {/* Stats - center */}
+        <div className="flex-1 grid grid-cols-4 divide-x-[3px] divide-gray-800">
+          <StatBlock label="INGRESO" value={fmtRD(calculations.totalRevenue)} icon="$" bg="bg-green-50" color="text-green-700" />
+          <StatBlock label="HUEVOS" value={`${fmtNum(calculations.totalEggs)}/m`} icon="O" bg="bg-orange-50" color="text-orange-700" />
+          <StatBlock label="NETO" value={fmtRD(calculations.netProfit || 0)} icon="N" bg={calculations.netProfit >= 0 ? 'bg-emerald-50' : 'bg-red-50'} color={calculations.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'} />
+          <StatBlock label="MARGEN" value={`${(calculations.profitMargin || 0).toFixed(1)}%`} icon="M" bg="bg-blue-50" color="text-blue-700" />
+        </div>
+
+        {/* Laying counter + clock - right */}
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border-l-[3px] border-gray-800">
+          <div className="text-center">
+            <p className="text-[8px] font-bold text-gray-500 leading-none">POSTURA</p>
+            <p className="text-sm font-bold text-gray-800 leading-none">{calculations.layingBatches}<span className="text-[9px] text-gray-400">/{batches.length}</span></p>
+          </div>
+          <div className="w-8 h-8 rounded-full border-[3px] border-gray-800 bg-yellow-200 flex items-center justify-center relative overflow-hidden">
+            <div className="absolute inset-[2px] rounded-full border border-gray-400" />
+            <div className="w-[2px] h-2.5 bg-gray-800 rounded-b origin-bottom" style={{ transform: `rotate(${tick * 15}deg)` }} />
+            <div className="absolute w-[1.5px] h-2 bg-gray-600 rounded-b origin-bottom" style={{ transform: `rotate(${tick * 1.25}deg)` }} />
+          </div>
+        </div>
+      </div>
+
+      {/* ========= MAP CONTAINER ========= */}
+      <div
+        ref={mapRef}
+        className="relative w-full border-[3px] border-gray-800 rounded-lg overflow-hidden select-none"
+        style={{ aspectRatio: '16 / 9' }}
+      >
+        {/* --- BACKGROUND LAYERS (non-interactive) --- */}
+        <MapBackground />
+
+        {/* --- TREES (background layer) --- */}
+        <PokeTree x="1%" y="22%" />
+        <PokeTree x="4.5%" y="18%" />
+        <PokeTree x="90%" y="20%" />
+        <PokeTree x="94%" y="24%" />
+        <PokeTree x="49%" y="17%" />
+
+        {/* --- FENCE PERIMETER --- */}
+        <FenceTop />
+        <FenceBottom />
+        <FenceLeft />
+        <FenceRight />
+
+        {/* --- GATE --- */}
+        <div className="absolute" style={{ left: '46.5%', top: '89%', width: '7%', height: '10%' }}>
+          <svg viewBox="0 0 80 32" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
+            <rect x="0" y="0" width="36" height="32" fill={P.wood2} stroke={P.black} strokeWidth="2" />
+            <rect x="44" y="0" width="36" height="32" fill={P.wood2} stroke={P.black} strokeWidth="2" />
+            <rect x="4" y="4" width="28" height="24" fill={P.wood1} />
+            <rect x="48" y="4" width="28" height="24" fill={P.wood1} />
+            {/* Hinges */}
+            <rect x="34" y="8" width="6" height="4" fill={P.wood4} />
+            <rect x="40" y="8" width="6" height="4" fill={P.wood4} />
+          </svg>
+        </div>
+
+        {/* --- PATH from gate up --- */}
+        <div className="absolute" style={{ left: '47%', top: '52%', width: '6%', height: '38%' }}>
+          <svg viewBox="0 0 40 120" width="100%" height="100%">
+            <rect x="0" y="0" width="40" height="120" fill={P.dirt1} stroke={P.dirt3} strokeWidth="1" />
+            <rect x="4" y="0" width="32" height="120" fill={P.dirt2} />
+            {[0, 20, 40, 60, 80, 100].map(y => (
+              <rect key={y} x="12" y={y} width="6" height="4" fill={P.dirt3} rx="1" />
+            ))}
+          </svg>
+        </div>
+
+        {/* --- SILO (left) --- */}
+        <div className="absolute" style={{ left: '2%', top: '34%', width: '5%', height: '16%' }}>
+          <svg viewBox="0 0 36 52" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
+            <rect x="6" y="6" width="24" height="40" fill={P.wall1} stroke={P.black} strokeWidth="2" />
+            <rect x="8" y="8" width="8" height="36" fill={P.light} />
+            <rect x="6" y="0" width="24" height="10" fill="#9ca3af" stroke={P.black} strokeWidth="2" />
+            <rect x="10" y="-4" width="16" height="8" fill="#6b7280" stroke={P.black} strokeWidth="2" />
+            <rect x="4" y="42" width="28" height="10" fill={P.dark} stroke={P.black} strokeWidth="2" />
+            <rect x="12" y="30" width="12" height="18" fill={P.mid} />
+            <rect x="14" y="30" width="2" height="18" fill={P.dark} />
+            <rect x="12" y="14" width="12" height="14" fill={P.yellow2} opacity="0.6" />
+          </svg>
+        </div>
+
+        {/* --- WATER TANK (right) --- */}
+        <div className="absolute" style={{ left: '93%', top: '36%', width: '4%', height: '13%' }}>
+          <svg viewBox="0 0 28 36" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
+            <rect x="2" y="4" width="24" height="24" fill="#93c5fd" stroke={P.black} strokeWidth="2" />
+            <rect x="4" y="6" width="8" height="20" fill="#bfdbfe" />
+            <rect x="0" y="0" width="28" height="8" fill={P.mid} stroke={P.black} strokeWidth="2" />
+            <rect x="4" y="28" width="4" height="8" fill={P.dark} />
+            <rect x="20" y="28" width="4" height="8" fill={P.dark} />
+            <rect x="6" y="10" width="2" height="6" fill="#dbeafe" />
+          </svg>
+        </div>
+
+        {/* --- SHEDS (interactive) --- */}
+        {shedData.map((shed, i) => {
+          const pos = SHED_POSITIONS[i] || SHED_POSITIONS[0]
+          const isHov = hoveredShed === shed.id
+          return (
+            <div
+              key={shed.id}
+              className="absolute z-10"
+              style={{ left: `${pos.left}%`, top: `${pos.top}%`, width: '38%', height: '26%' }}
+              onMouseEnter={(e) => handleShedHover(shed.id, i, e)}
+              onMouseLeave={handleShedLeave}
+            >
+              {/* Shed shadow */}
+              <div className="absolute bottom-0 left-[8%] right-[8%] h-[6%] bg-black/15 rounded-full" />
+              {/* Shed building */}
+              <div className="relative w-full h-full">
+                <ShedBuilding phase={shed.phase} isHovered={isHov} name={shed.name} />
+              </div>
+            </div>
+          )
+        })}
+
+        {/* --- WALKING CHICKENS --- */}
+        <WalkingChicken left="15%" top="88%" delay={0} tick={tick} />
+        <WalkingChicken left="72%" top="87%" delay={2} tick={tick} />
+
+        {/* --- HOVER TOOLTIP (Pokemon dialog box) --- */}
+        {activeShed && (
+          <div
+            className="absolute z-50 pointer-events-none"
+            style={{
+              left: `${tooltipPos.x}px`,
+              top: `${tooltipPos.y}px`,
+              transform: tooltipPos.align === 'right' ? 'translateX(-100%)' : 'translateX(0)',
+              maxWidth: '220px',
+              width: '220px',
+            }}
+          >
+            <PokeTooltip shed={activeShed} align={tooltipPos.align} />
+          </div>
+        )}
+
+        {/* --- FARM SIGN --- */}
+        <div className="absolute z-20" style={{ left: '38%', top: '2.5%', width: '24%', height: '8%' }}>
+          <svg viewBox="0 0 160 36" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
+            <rect x="68" y="10" width="8" height="26" fill={P.wood3} stroke={P.black} strokeWidth="2" />
+            <rect x="84" y="10" width="8" height="26" fill={P.wood3} stroke={P.black} strokeWidth="2" />
+            <rect x="0" y="0" width="160" height="16" fill={P.wood3} stroke={P.black} strokeWidth="2" />
+            <rect x="4" y="2" width="152" height="12" fill={P.cream} />
+            <text x="80" y="12" textAnchor="middle" fontSize="9" fill={P.black} fontFamily="monospace" fontWeight="bold">
+              GRANJA NIDAL
+            </text>
+          </svg>
+        </div>
+
+        {/* --- SCANLINES (very subtle retro overlay) --- */}
+        <div
+          className="absolute inset-0 pointer-events-none z-30 opacity-[0.025]"
+          style={{
+            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.5) 3px, rgba(0,0,0,0.5) 4px)',
+          }}
+        />
+      </div>
+
+      {/* ========= LEGEND ========= */}
+      <div className="flex items-stretch border-[3px] border-gray-800 rounded-lg overflow-hidden divide-x-[3px] divide-gray-800">
+        {(Object.keys(PHASE_LABELS) as PhaseKey[]).map(phase => (
+          <div key={phase} className="flex-1 flex items-center gap-1.5 px-2 py-1.5 bg-gray-50">
+            <div className="w-3 h-3 border-2 border-gray-800 rounded-sm" style={{ backgroundColor: PHASE_ROOF[phase].main }} />
+            <span className="text-[9px] font-bold text-gray-700">{PHASE_LABELS[phase]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ================================================================
+// MAP BACKGROUND
+// ================================================================
+function MapBackground() {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const iv = setInterval(() => setTick(t => t + 1), 200)
+    return () => clearInterval(iv)
+  }, [])
+
+  return (
+    <div className="absolute inset-0">
+      {/* Sky */}
+      <div className="absolute inset-0" style={{ height: '30%', background: 'linear-gradient(180deg, #7dd3fc 0%, #bae6fd 100%)' }} />
+      {/* Grass */}
+      <div className="absolute" style={{ top: '28%', bottom: 0, left: 0, right: 0, background: 'linear-gradient(180deg, #4ade80 0%, #22c55e 30%, #16a34a 70%, #15803d 100%)' }} />
+      {/* Transition stripe (trees/bushes line) */}
+      <div className="absolute" style={{ top: '26%', left: 0, right: 0, height: '5%', background: '#388838' }} />
+
+      {/* Sun */}
+      <svg className="absolute" style={{ top: '3%', right: '6%', width: '40px', height: '40px' }} viewBox="0 0 40 40">
+        <circle cx="20" cy="20" r="10" fill="#fbbf24" stroke={P.black} strokeWidth="2" />
+        <circle cx="18" cy="18" r="3" fill="#fde047" />
+        {Array.from({ length: 8 }, (_, i) => (
+          <line key={i} x1="20" y1="4" x2="20" y2="8" stroke={P.black} strokeWidth="2"
+            transform={`rotate(${i * 45 + tick * 3}, 20, 20)`} />
+        ))}
+      </svg>
+
+      {/* Clouds */}
+      {[{ delay: 0, top: '4%' }, { delay: 300, top: '9%' }, { delay: 600, top: '15%' }].map((c, i) => (
+        <svg key={i} className="absolute pointer-events-none opacity-80"
+          style={{ top: c.top, left: `${((tick * 0.4 + c.delay) % 110) - 10}%`, width: '56px', height: '22px' }}
+          viewBox="0 0 56 22">
+          <ellipse cx="28" cy="14" rx="28" ry="8" fill="white" stroke={P.black} strokeWidth="1.5" />
+          <ellipse cx="20" cy="8" rx="14" ry="8" fill="white" stroke={P.black} strokeWidth="1.5" />
+          <ellipse cx="34" cy="10" rx="10" ry="6" fill="white" />
+          <ellipse cx="18" cy="6" rx="6" ry="4" fill="#f0f9ff" />
+        </svg>
+      ))}
+    </div>
+  )
+}
+
+// ================================================================
+// POKEMON-STYLE TREE
+// ================================================================
+function PokeTree({ x, y }: { x: string; y: string }) {
+  return (
+    <svg className="absolute pointer-events-none" style={{ left: x, top: y, width: '32px', height: '40px', imageRendering: 'pixelated' }}
+      viewBox="0 0 32 40">
       {/* Trunk */}
-      <rect x="13" y="28" width="6" height="12" fill={trunkColor} />
-      {/* Leaves - triangle shape pixelated */}
-      <rect x="10" y="8" width="12" height="4" fill={c3} />
-      <rect x="8" y="12" width="16" height="4" fill={c2} />
-      <rect x="6" y="16" width="20" height="4" fill={c1} />
-      <rect x="8" y="20" width="16" height="4" fill={c2} />
-      <rect x="10" y="24" width="12" height="4" fill={c3} />
+      <rect x="13" y="26" width="6" height="14" fill={P.wood2} stroke={P.black} strokeWidth="1.5" />
+      {/* Canopy - round bushy shape */}
+      <circle cx="16" cy="16" r="12" fill="#16a34a" stroke={P.black} strokeWidth="2" />
+      <circle cx="10" cy="12" r="7" fill="#22c55e" />
+      <circle cx="22" cy="14" r="6" fill="#15803d" />
+      <circle cx="14" cy="8" r="5" fill="#4ade80" />
       {/* Highlight */}
-      <rect x="10" y="8" width="4" height="4" fill={c1} opacity="0.7" />
-      <rect x="8" y="12" width="4" height="4" fill={c1} opacity="0.5" />
+      <circle cx="11" cy="9" r="3" fill="#86efac" opacity="0.7" />
     </svg>
   )
 }
 
 // ================================================================
-// PIXEL ART FENCE SECTION
+// FENCE SEGMENTS
 // ================================================================
-function PixelFence({ width = 100, x = 0, y = 0, horizontal = true }: { width?: number; x?: number; y?: number; horizontal?: boolean }) {
+function FenceTop() {
   return (
-    <svg
-      width={horizontal ? width : 8}
-      height={horizontal ? 20 : width}
-      viewBox={horizontal ? `0 0 ${width} 20` : `0 0 8 ${width}`}
-      style={{ position: 'absolute', left: x, top: y, imageRendering: 'pixelated' }}
-    >
-      {Array.from({ length: horizontal ? Math.floor(width / 12) : Math.floor(width / 12) }, (_, i) => (
-        <g key={i} transform={horizontal ? `translate(${i * 12}, 0)` : `translate(0, ${i * 12})`}>
-          {/* Post */}
-          <rect x={horizontal ? 3 : 0} y={horizontal ? 0 : 3} width="4" height="20" fill="#92400e" />
-          {/* Pointed top */}
-          <rect x={horizontal ? 3 : 1} y={horizontal ? 0 : 1} width="4" height="4" fill="#a16207" />
-          {/* Horizontal rail */}
-          {horizontal ? (
-            <>
-              <rect x="0" y="6" width={width} height="2" fill="#b45309" />
-              <rect x="0" y="14" width={width} height="2" fill="#b45309" />
-            </>
-          ) : (
-            <>
-              <rect x="3" y="0" width="2" height={width} fill="#b45309" />
-              <rect x="7" y="0" width="2" height={width} fill="#b45309" />
-            </>
-          )}
-        </g>
+    <svg className="absolute pointer-events-none z-[5]" style={{ left: '7%', top: '24%', width: '86%', height: '14px' }}
+      viewBox="0 0 860 14" preserveAspectRatio="none">
+      <rect x="0" y="4" width="860" height="2" fill={P.wood2} stroke={P.black} strokeWidth="1" />
+      <rect x="0" y="10" width="860" height="2" fill={P.wood2} stroke={P.black} strokeWidth="1" />
+      {Array.from({ length: 36 }, (_, i) => (
+        <rect key={i} x={i * 24} y="0" width="4" height="14" fill={P.wood1} stroke={P.black} strokeWidth="1" />
+      ))}
+    </svg>
+  )
+}
+
+function FenceBottom() {
+  return (
+    <svg className="absolute pointer-events-none z-[5]" style={{ left: '7%', top: '89%', width: '40%', height: '14px' }}
+      viewBox="0 0 400 14" preserveAspectRatio="none">
+      <rect x="0" y="4" width="400" height="2" fill={P.wood2} stroke={P.black} strokeWidth="1" />
+      <rect x="0" y="10" width="400" height="2" fill={P.wood2} stroke={P.black} strokeWidth="1" />
+      {Array.from({ length: 17 }, (_, i) => (
+        <rect key={i} x={i * 24} y="0" width="4" height="14" fill={P.wood1} stroke={P.black} strokeWidth="1" />
+      ))}
+    </svg>
+  )
+}
+
+function FenceLeft() {
+  return (
+    <svg className="absolute pointer-events-none z-[5]" style={{ left: '7%', top: '24%', width: '14px', height: '66%' }}
+      viewBox="0 0 14 660" preserveAspectRatio="none">
+      <rect x="4" y="0" width="2" height="660" fill={P.wood2} stroke={P.black} strokeWidth="1" />
+      <rect x="10" y="0" width="2" height="660" fill={P.wood2} stroke={P.black} strokeWidth="1" />
+      {Array.from({ length: 28 }, (_, i) => (
+        <rect key={i} x="0" y={i * 24} width="14" height="4" fill={P.wood1} stroke={P.black} strokeWidth="1" />
+      ))}
+    </svg>
+  )
+}
+
+function FenceRight() {
+  return (
+    <svg className="absolute pointer-events-none z-[5]" style={{ left: '92.5%', top: '24%', width: '14px', height: '66%' }}
+      viewBox="0 0 14 660" preserveAspectRatio="none">
+      <rect x="4" y="0" width="2" height="660" fill={P.wood2} stroke={P.black} strokeWidth="1" />
+      <rect x="10" y="0" width="2" height="660" fill={P.wood2} stroke={P.black} strokeWidth="1" />
+      {Array.from({ length: 28 }, (_, i) => (
+        <rect key={i} x="0" y={i * 24} width="14" height="4" fill={P.wood1} stroke={P.black} strokeWidth="1" />
       ))}
     </svg>
   )
 }
 
 // ================================================================
-// SILO / FEED STORAGE
+// SHED BUILDING (just the sprite - no data)
 // ================================================================
-function PixelSilo({ x = 0, y = 0 }: { x?: number; y?: number }) {
+function ShedBuilding({ phase, isHovered, name }: { phase: PhaseKey; isHovered: boolean; name: string }) {
+  const roof = PHASE_ROOF[phase]
+  const icon = PHASE_ICONS[phase]
   return (
-    <svg width="36" height="52" viewBox="0 0 36 52" style={{ position: 'absolute', left: x, top: y, imageRendering: 'pixelated' }}>
-      {/* Silo body */}
-      <rect x="8" y="8" width="20" height="40" fill="#d1d5db" />
-      <rect x="10" y="10" width="4" height="36" fill="#e5e7eb" />
-      {/* Silo top - dome */}
-      <rect x="6" y="4" width="24" height="8" fill="#9ca3af" />
-      <rect x="12" y="0" width="12" height="8" fill="#9ca3af" />
-      <rect x="14" y="0" width="8" height="4" fill="#6b7280" />
-      {/* Base */}
-      <rect x="4" y="44" width="28" height="8" fill="#6b7280" />
-      {/* Door */}
-      <rect x="13" y="34" width="10" height="14" fill="#4b5563" />
-      <rect x="15" y="36" width="2" height="10" fill="#6b7280" />
-      {/* Feed level indicator */}
-      <rect x="10" y="14" width="16" height="18" fill="#fbbf24" opacity="0.5" />
-      <rect x="10" y="14" width="4" height="18" fill="#f59e0b" opacity="0.4" />
-    </svg>
-  )
-}
-
-// ================================================================
-// WATER TANK
-// ================================================================
-function PixelWaterTank({ x = 0, y = 0 }: { x?: number; y?: number }) {
-  return (
-    <svg width="28" height="36" viewBox="0 0 28 36" style={{ position: 'absolute', left: x, top: y, imageRendering: 'pixelated' }}>
-      {/* Tank body */}
-      <rect x="4" y="4" width="20" height="28" fill="#bfdbfe" />
-      <rect x="6" y="6" width="6" height="24" fill="#93c5fd" />
-      {/* Water shimmer */}
-      <rect x="6" y="8" width="2" height="6" fill="#dbeafe" />
-      <rect x="10" y="14" width="2" height="4" fill="#dbeafe" />
-      {/* Top rim */}
-      <rect x="2" y="0" width="24" height="6" fill="#6b7280" />
-      <rect x="0" y="2" width="28" height="4" fill="#4b5563" />
-      {/* Legs */}
-      <rect x="4" y="32" width="4" height="4" fill="#6b7280" />
-      <rect x="20" y="32" width="4" height="4" fill="#6b7280" />
-      {/* Base */}
-      <rect x="2" y="32" width="24" height="4" fill="#4b5563" />
-    </svg>
-  )
-}
-
-// ================================================================
-// MAIN FARM MAP COMPONENT
-// ================================================================
-export default function FarmMapView({ batches, config, calculations }: FarmMapViewProps) {
-  // Time-based ambient effects
-  const [timePhase, setTimePhase] = useState(0)
-  const [cloudOffset, setCloudOffset] = useState(0)
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTimePhase(prev => (prev + 1) % 360)
-    }, 100)
-    const cloudInterval = setInterval(() => {
-      setCloudOffset(prev => (prev + 0.3) % 800)
-    }, 50)
-    return () => { clearInterval(interval); clearInterval(cloudInterval) }
-  }, [])
-
-  // Animated chicken pecking
-  const [peckFrame, setPeckFrame] = useState(0)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPeckFrame(prev => (prev + 1) % 4)
-    }, 500)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Egg pop animation for laying sheds
-  const [eggPops, setEggPops] = useState<Record<string, number>>({})
-  useEffect(() => {
-    const interval = setInterval(() => {
-      batches.forEach(b => {
-        if (b.isLaying) {
-          setEggPops(prev => ({ ...prev, [b.id]: (prev[b.id] || 0) + 1 }))
-        }
-      })
-    }, 2000)
-    return () => clearInterval(interval)
-  }, [batches])
-
-  // Compute per-shed details
-  const shedDetails = useMemo(() => {
-    return batches.map((batch, index) => {
-      const calcDetail = calculations.batchDetails?.find(b => b.id === batch.id)
-      const theme = PHASE_HUD_COLORS[batch.phase]
-      const production = batch.isLaying ? Math.round(batch.layingRate) : 0
-      const feedPhase = config.feedPhases[batch.phase]
-      const healthPercent = Math.max(60, 100 - (config.mortalityRate * Math.random() * 0.3))
-      const feedLevel = Math.min(100, 70 + Math.random() * 30)
-
-      return {
-        ...batch,
-        index,
-        theme,
-        production,
-        eggsPerDay: calcDetail?.eggsPerDay || 0,
-        revenue: calcDetail?.eggRevenue || 0,
-        feedCost: calcDetail?.monthlyFeedCost || 0,
-        feedPhase,
-        healthPercent,
-        feedLevel,
-        weeksLabel: feedPhase?.weeks || '',
-      }
-    })
-  }, [batches, calculations, config])
-
-  const totalHens = calculations.totalHens || 0
-  const layingCount = calculations.layingBatches || 0
-
-  // Day/night overlay opacity based on simulated time
-  const dayBrightness = 85 + Math.sin(timePhase * Math.PI / 180) * 10
-
-  return (
-    <div className="space-y-4">
-      {/* RPG-Style HUD Bar */}
-      <div className="relative overflow-hidden rounded-xl border-2 border-amber-800 bg-gradient-to-r from-amber-900 via-amber-800 to-amber-900 p-1">
-        <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-amber-100 via-yellow-50 to-amber-100 rounded-lg">
-          {/* Left: Farm Status */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-200 border-2 border-amber-400 flex items-center justify-center text-lg">
-                &#x1F3E0;
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Granja Nidal</p>
-                <p className="text-[9px] text-amber-600">{fmtNum(totalHens)} aves &bull; {batches.length} galpones</p>
-              </div>
-            </div>
-            {/* Health bar */}
-            <div className="hidden sm:flex items-center gap-1.5">
-              <span className="text-[9px] font-bold text-red-700">HP</span>
-              <div className="w-20 h-3 bg-stone-300 border border-stone-500 rounded-sm overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-red-500 to-green-500 transition-all duration-1000"
-                  style={{ width: `${Math.min(100, 60 + (calculations.profitMargin || 0) * 2)}%` }}
-                />
-              </div>
-              <span className="text-[9px] text-amber-700">{Math.min(100, Math.round(60 + (calculations.profitMargin || 0) * 2))}%</span>
-            </div>
-          </div>
-
-          {/* Center: Coins & Eggs */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-200/60 rounded-md border border-amber-300">
-              <span className="text-sm">&#x1FA99;</span>
-              <div>
-                <p className="text-[9px] text-amber-600">Ingreso</p>
-                <p className="text-[11px] font-bold text-amber-800">{fmtRD(calculations.totalRevenue)}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-100/60 rounded-md border border-red-200">
-              <span className="text-sm">&#x1F95A;</span>
-              <div>
-                <p className="text-[9px] text-red-500">Huevos</p>
-                <p className="text-[11px] font-bold text-red-700">{fmtNum(calculations.totalEggs)}/mes</p>
-              </div>
-            </div>
-            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100/60 rounded-md border border-emerald-200">
-              <span className="text-sm">&#x1F4B0;</span>
-              <div>
-                <p className="text-[9px] text-emerald-500">Neto</p>
-                <p className={`text-[11px] font-bold ${(calculations.netProfit || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                  {fmtRD(calculations.netProfit || 0)}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Laying status */}
-          <div className="flex items-center gap-1.5">
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-yellow-100/60 rounded-md border border-yellow-200">
-              <span className="text-sm">&#x2B50;</span>
-              <div>
-                <p className="text-[9px] text-yellow-600">Postura</p>
-                <p className="text-[11px] font-bold text-yellow-800">{layingCount}/{batches.length}</p>
-              </div>
-            </div>
-            {/* Mini clock */}
-            <div className="w-10 h-10 rounded-full border-2 border-amber-500 bg-amber-100 flex items-center justify-center">
-              <div
-                className="w-1 h-3 bg-amber-700 rounded-full origin-bottom"
-                style={{ transform: `rotate(${timePhase}deg)` }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* FARM MAP - Main View */}
-      <Card className="border-2 border-amber-700 overflow-hidden">
-        <CardContent className="p-0">
-          <div
-            className="relative w-full overflow-hidden"
-            style={{
-              minHeight: '520px',
-              background: `linear-gradient(180deg,
-                #7dd3fc 0%,
-                #bae6fd 15%,
-                #86efac 15.5%,
-                #4ade80 30%,
-                #22c55e 50%,
-                #16a34a 80%,
-                #15803d 100%
-              )`,
-              imageRendering: 'auto',
-            }}
-          >
-            {/* Sky gradient overlay for day cycle */}
-            <div
-              className="absolute inset-0 pointer-events-none transition-opacity duration-1000"
-              style={{
-                background: `radial-gradient(ellipse at 80% 10%, rgba(253,224,71,${0.15 + Math.sin(timePhase * Math.PI / 90) * 0.1}) 0%, transparent 50%)`,
-              }}
-            />
-
-            {/* Clouds */}
-            {[0, 1, 2].map(i => (
-              <div
-                key={`cloud-${i}`}
-                className="absolute pointer-events-none"
-                style={{
-                  top: `${2 + i * 4}%`,
-                  left: `${(cloudOffset + i * 280) % 900 - 100}px`,
-                  transition: 'left 0.1s linear',
-                }}
-              >
-                <svg width="80" height="32" viewBox="0 0 80 32" opacity="0.7">
-                  <rect x="10" y="16" width="60" height="16" rx="8" fill="white" />
-                  <rect x="20" y="8" width="40" height="16" rx="8" fill="white" />
-                  <rect x="30" y="2" width="24" height="14" rx="7" fill="white" />
-                  <rect x="20" y="8" width="12" height="8" rx="4" fill="#f0f9ff" />
-                </svg>
-              </div>
-            ))}
-
-            {/* Sun */}
-            <div
-              className="absolute pointer-events-none"
-              style={{
-                top: '3%',
-                right: '8%',
-              }}
-            >
-              <svg width="48" height="48" viewBox="0 0 48 48">
-                <circle cx="24" cy="24" r="12" fill="#fbbf24" />
-                <circle cx="24" cy="24" r="10" fill="#fcd34d" />
-                {Array.from({ length: 8 }, (_, i) => (
-                  <line
-                    key={i}
-                    x1="24"
-                    y1="4"
-                    x2="24"
-                    y2="10"
-                    stroke="#fbbf24"
-                    strokeWidth="2"
-                    transform={`rotate(${i * 45 + timePhase * 0.5}, 24, 24)`}
-                  />
-                ))}
-              </svg>
-            </div>
-
-            {/* Background trees (far away) */}
-            <PixelTree variant={1} x="3%" y="17%" />
-            <PixelTree variant={2} x="7%" y="14%" />
-            <PixelTree variant={3} x="88%" y="16%" />
-            <PixelTree variant={1} x="92%" y="19%" />
-            <PixelTree variant={2} x="15%" y="18%" />
-            <PixelTree variant={3} x="80%" y="17%" />
-
-            {/* FENCE - Top */}
-            <PixelFence width={600} x="10%" y="24%" horizontal={true} />
-            {/* FENCE - Bottom */}
-            <PixelFence width={600} x="10%" y="88%" horizontal={true} />
-            {/* FENCE - Left */}
-            <PixelFence width={350} x="10%" y="24%" horizontal={false} />
-            {/* FENCE - Right */}
-            <PixelFence width={350} x="88%" y="24%" horizontal={false} />
-
-            {/* Gate / Entrance at bottom */}
-            <svg width="48" height="28" viewBox="0 0 48 28" style={{ position: 'absolute', left: '47%', top: '85%', imageRendering: 'pixelated' }}>
-              <rect x="0" y="0" width="48" height="28" fill="#92400e" />
-              <rect x="2" y="2" width="20" height="24" fill="#b45309" />
-              <rect x="26" y="2" width="20" height="24" fill="#b45309" />
-              <rect x="22" y="8" width="4" height="16" fill="#78350f" />
-            </svg>
-
-            {/* Silo */}
-            <PixelSilo x="5%" y="30%" />
-
-            {/* Water Tank */}
-            <PixelWaterTank x="90%" y="32%" />
-
-            {/* Road from gate to sheds */}
-            <svg width="200" height="20" viewBox="0 0 200 20" style={{ position: 'absolute', left: '38%', top: '82%', imageRendering: 'pixelated' }}>
-              <rect x="0" y="4" width="200" height="12" fill="#d1d5db" />
-              <rect x="0" y="6" width="200" height="8" fill="#e5e7eb" />
-              {[0, 40, 80, 120, 160].map(x => (
-                <rect key={x} x={x + 15} y="8" width="12" height="4" fill="#fbbf24" />
-              ))}
-            </svg>
-
-            {/* ===== SHEDS (2x2 Grid) ===== */}
-            <div className="absolute" style={{ top: '30%', left: '14%', width: '76%', height: '52%' }}>
-              <div className="grid grid-cols-2 gap-4 h-full">
-                {shedDetails.map((shed) => (
-                  <ShedSprite key={shed.id} shed={shed} peckFrame={peckFrame} eggPop={!!eggPops[shed.id]} />
-                ))}
-              </div>
-            </div>
-
-            {/* Decorative chickens walking around */}
-            <WalkingChicken x="18%" y="92%" frame={peckFrame} delay={0} />
-            <WalkingChicken x="68%" y="93%" frame={peckFrame} delay={1} />
-            <WalkingChicken x="42%" y="90%" frame={peckFrame} delay={2} />
-
-            {/* Farm sign */}
-            <svg width="80" height="40" viewBox="0 0 80 40" style={{ position: 'absolute', left: '44%', top: '3%', imageRendering: 'pixelated' }}>
-              {/* Post */}
-              <rect x="36" y="16" width="8" height="24" fill="#78350f" />
-              {/* Sign board */}
-              <rect x="2" y="4" width="76" height="16" rx="2" fill="#92400e" />
-              <rect x="4" y="6" width="72" height="12" rx="1" fill="#fef3c7" />
-              <text x="40" y="15" textAnchor="middle" fontSize="8" fill="#78350f" fontFamily="monospace" fontWeight="bold">GRANJA NIDAL</text>
-            </svg>
-
-            {/* Foreground grass details */}
-            <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-              {Array.from({ length: 20 }, (_, i) => (
-                <g key={`grass-${i}`}>
-                  <rect
-                    x={`${5 + (i * 4.7) % 90}%`}
-                    y={`${70 + (i * 2.3) % 25}%`}
-                    width="2"
-                    height="6"
-                    fill={i % 3 === 0 ? '#15803d' : '#166534'}
-                    rx="1"
-                  />
-                  <rect
-                    x={`${3 + (i * 4.7) % 90}%`}
-                    y={`${70 + (i * 2.3) % 25}%`}
-                    width="2"
-                    height="8"
-                    fill="#16a34a"
-                    rx="1"
-                  />
-                </g>
-              ))}
-            </svg>
-
-            {/* Subtle scan lines for retro RPG feel */}
-            <div
-              className="absolute inset-0 pointer-events-none opacity-[0.03]"
-              style={{
-                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.3) 2px, rgba(0,0,0,0.3) 4px)',
-              }}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Bottom Legend / Mini Info Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-        <PhaseLegendCard phase="pre_inicio" />
-        <PhaseLegendCard phase="inicio" />
-        <PhaseLegendCard phase="crecimiento" />
-        <PhaseLegendCard phase="pre_postura" />
-        <PhaseLegendCard phase="postura" />
-      </div>
-
-      {/* Farm Stats RPG Card */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <StatGem icon="\u{1F95A}" label="Huevos/Dia" value={fmtNum(calculations.totalEggs ? Math.round(calculations.totalEggs / 30) : 0)} color="bg-orange-100 border-orange-300 text-orange-700" />
-        <StatGem icon="\u{1F35E}" label="Alimento/Mes" value={`${fmtNum(Math.round(calculations.totalFeedKg || 0))} kg`} color="bg-amber-100 border-amber-300 text-amber-700" />
-        <StatGem icon="\u{1F4B3}" label="Feed Cost" value={fmtRD(calculations.batchDetails?.reduce((s, b) => s + (b.monthlyFeedCost || 0), 0) || 0)} color="bg-red-100 border-red-300 text-red-700" />
-        <StatGem icon="\u{1F3AF}" label="Margen" value={`${(calculations.profitMargin || 0).toFixed(1)}%`} color="bg-violet-100 border-violet-300 text-violet-700" />
-      </div>
-    </div>
-  )
-}
-
-// ================================================================
-// SHED SPRITE COMPONENT
-// ================================================================
-function ShedSprite({
-  shed,
-  peckFrame,
-  eggPop,
-}: {
-  shed: {
-    id: string
-    name: string
-    hens: number
-    layingRate: number
-    isLaying: boolean
-    cycleMonth: number
-    phase: PhaseKey
-    index: number
-    theme: { bg: string; border: string; text: string; glow: string; roof: string }
-    production: number
-    eggsPerDay: number
-    revenue: number
-    feedCost: number
-    feedLevel: number
-    weeksLabel: string
-  }
-  peckFrame: number
-  eggPop: boolean
-}) {
-  const theme = PHASE_HUD_COLORS[shed.phase]
-  const roofColor = theme.roof
-
-  // Determine building appearance based on phase
-  const isProducing = shed.isLaying
-  const progressPercent = Math.min(100, (shed.cycleMonth / 20) * 100)
-
-  return (
-    <div className="relative flex flex-col items-center">
-      {/* RPG floating label */}
-      <div className="absolute -top-6 z-10 flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100/90 border border-amber-300 shadow-md">
-        <span className="text-sm">{PHASE_ICONS[shed.phase]}</span>
-        <span className="text-[10px] font-bold text-amber-800 whitespace-nowrap">{shed.name}</span>
-      </div>
-
-      {/* Main shed building */}
-      <div className={`relative w-full rounded-lg border-2 ${theme.border} ${theme.bg} shadow-lg ${theme.glow} overflow-hidden`}
-        style={{ imageRendering: 'pixelated' }}
-      >
-        {/* Roof */}
-        <div className="relative h-8 overflow-hidden" style={{ backgroundColor: roofColor }}>
-          <svg width="100%" height="32" viewBox="0 0 200 32" preserveAspectRatio="none" style={{ imageRendering: 'pixelated' }}>
-            <polygon points="100,0 0,32 200,32" fill={roofColor} />
-            <polygon points="100,4 8,32 40,32" fill="white" opacity="0.15" />
-            {/* Roof tiles pattern */}
-            {[0, 30, 60, 90, 120, 150].map(x => (
-              <rect key={x} x={x} y="12" width="30" height="4" rx="1" fill="rgba(0,0,0,0.1)" />
-            ))}
-          </svg>
-        </div>
-
-        {/* Building body */}
-        <div className="p-3 space-y-2">
-          {/* Phase badge */}
-          <div className="flex items-center justify-between">
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-sm ${theme.bg} ${theme.text} border ${theme.border}`}>
-              {PHASE_LABELS[shed.phase]}
-            </span>
-            <span className="text-[9px] text-stone-500 font-mono">{shed.weeksLabel}</span>
-          </div>
-
-          {/* Hen count with mini progress */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              <span className="text-xs">&#x1F414;</span>
-              <span className="text-xs font-bold text-stone-700">{fmtNum(shed.hens)}</span>
-              <span className="text-[9px] text-stone-500">aves</span>
-            </div>
-            {/* Health bar */}
-            <div className="flex-1 flex items-center gap-1">
-              <div className="flex-1 h-2 bg-stone-200 rounded-full overflow-hidden border border-stone-300">
-                <div
-                  className="h-full bg-gradient-to-r from-red-400 via-yellow-400 to-green-400 transition-all duration-500 rounded-full"
-                  style={{ width: `${70 + shed.index * 7}%` }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Production stats for laying */}
-          {shed.isLaying ? (
-            <div className="flex items-center gap-2 text-[10px]">
-              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-green-100 rounded border border-green-200">
-                <span className={`text-xs ${eggPop ? 'scale-125' : ''} transition-transform duration-300 inline-block`}>&#x1F95A;</span>
-                <span className="font-bold text-green-700">{fmtNum(shed.eggsPerDay)}/dia</span>
-              </div>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-yellow-50 rounded border border-yellow-200">
-                <span className="text-[9px]">&#x2B50;</span>
-                <span className="font-bold text-yellow-700">{shed.layingRate}%</span>
-              </div>
-            </div>
-          ) : (
-            <div className="text-[10px] text-stone-400 italic">
-              Crianza - Mes {shed.cycleMonth}
-            </div>
-          )}
-
-          {/* Feed level mini bar */}
-          <div className="flex items-center gap-1">
-            <span className="text-[8px] text-stone-400">Feed</span>
-            <div className="flex-1 h-1.5 bg-stone-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-amber-400 to-yellow-300 rounded-full transition-all duration-1000"
-                style={{ width: `${shed.feedLevel}%` }}
-              />
-            </div>
-            <span className="text-[8px] text-stone-500 font-mono">{Math.round(shed.feedLevel)}%</span>
-          </div>
-        </div>
-
-        {/* Bottom progress bar - cycle progress */}
-        <div className="h-2 bg-stone-700/20">
-          <div
-            className={`h-full transition-all duration-700 ${shed.isLaying ? 'bg-gradient-to-r from-green-400 to-emerald-400' : 'bg-gradient-to-r from-sky-400 to-blue-400'}`}
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      </div>
-
+    <svg viewBox="0 0 180 100" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
       {/* Ground shadow */}
-      <div className="absolute -bottom-2 left-[10%] right-[10%] h-3 bg-black/10 rounded-full blur-sm" />
-    </div>
+      <ellipse cx="90" cy="96" rx="75" ry="4" fill="rgba(0,0,0,0.12)" />
+
+      {/* Wall body */}
+      <rect x="20" y="40" width="140" height="52" fill={P.wall2} stroke={P.black} strokeWidth="2.5" />
+      {/* Wall detail lines */}
+      <rect x="22" y="42" width="136" height="48" fill="none" />
+      <line x1="20" y1="60" x2="160" y2="60" stroke={P.wall3} strokeWidth="1" />
+      <line x1="60" y1="40" x2="60" y2="92" stroke={P.wall3} strokeWidth="0.8" />
+      <line x1="120" y1="40" x2="120" y2="92" stroke={P.wall3} strokeWidth="0.8" />
+      {/* Wall highlight */}
+      <rect x="22" y="42" width="136" height="6" fill={P.wall1} opacity="0.5" />
+
+      {/* Door */}
+      <rect x="70" y="60" width="24" height="32" fill={P.wood3} stroke={P.black} strokeWidth="2" />
+      <rect x="72" y="62" width="20" height="28" fill={P.wood2} />
+      <rect x="74" y="64" width="2" height="24" fill={P.wood1} />
+      <circle cx="88" cy="76" r="2" fill={P.yellow2} stroke={P.black} strokeWidth="1" />
+
+      {/* Windows */}
+      <rect x="30" y="48" width="20" height="16" fill="#bae6fd" stroke={P.black} strokeWidth="2" />
+      <line x1="40" y1="48" x2="40" y2="64" stroke={P.black} strokeWidth="1.5" />
+      <line x1="30" y1="56" x2="50" y2="56" stroke={P.black} strokeWidth="1.5" />
+      <rect x="130" y="48" width="20" height="16" fill="#bae6fd" stroke={P.black} strokeWidth="2" />
+      <line x1="140" y1="48" x2="140" y2="64" stroke={P.black} strokeWidth="1.5" />
+      <line x1="130" y1="56" x2="150" y2="56" stroke={P.black} strokeWidth="1.5" />
+
+      {/* Roof */}
+      <polygon points="90,8 10,42 170,42" fill={roof.main} stroke={P.black} strokeWidth="2.5" />
+      {/* Roof shade (right side) */}
+      <polygon points="90,8 170,42 90,42" fill={roof.shade} opacity="0.3" />
+      {/* Roof highlight (left side) */}
+      <polygon points="90,8 10,42 50,42" fill={roof.light} opacity="0.3" />
+      {/* Roof tiles */}
+      {[20, 50, 80, 110, 140].map(x => (
+        <line key={x} x1={x} y1={20 + (90 - x) * 0.15} x2={x + 20} y2={20 + (70 - x) * 0.15}
+          stroke={P.black} strokeWidth="0.8" opacity="0.3" />
+      ))}
+
+      {/* Hover highlight glow */}
+      {isHovered && (
+        <rect x="18" y="38" width="144" height="56" fill="white" opacity="0.15" rx="2" />
+      )}
+
+      {/* Name plate above roof */}
+      <text x="90" y="6" textAnchor="middle" fontSize="8" fill={P.black} fontFamily="monospace" fontWeight="bold">
+        {name}
+      </text>
+
+      {/* Phase icon */}
+      <text x="90" y="80" textAnchor="middle" fontSize="14">{icon}</text>
+    </svg>
   )
 }
 
 // ================================================================
 // WALKING CHICKEN
 // ================================================================
-function WalkingChicken({ x, y, frame, delay }: { x: string; y: string; frame: number; delay: number }) {
-  const direction = (frame + delay) % 2 === 0 ? 1 : -1
-  const bobY = Math.sin((frame + delay) * 0.8) * 1.5
+function WalkingChicken({ left, top, delay, tick }: { left: string; top: string; delay: number; tick: number }) {
+  const frame = Math.floor((tick + delay) / 2) % 4
+  const dir = frame < 2 ? 1 : -1
+  const bob = Math.sin(tick * 0.6 + delay) * 2
 
   return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 20 20"
-      style={{
-        position: 'absolute',
-        left: x,
-        top: y,
-        transform: `translateY(${bobY}px) scaleX(${direction})`,
-        transition: 'transform 0.3s',
-        imageRendering: 'pixelated',
-      }}
-    >
+    <svg className="absolute pointer-events-none z-[6]"
+      style={{ left, top, width: '18px', height: '18px', transform: `translateY(${bob}px) scaleX(${dir})`, imageRendering: 'pixelated' }}
+      viewBox="0 0 18 18">
       {/* Body */}
-      <ellipse cx="10" cy="12" rx="5" ry="4" fill="#fbbf24" />
+      <ellipse cx="9" cy="11" rx="5" ry="3.5" fill="#fbbf24" stroke={P.black} strokeWidth="1.5" />
       {/* Head */}
-      <circle cx="15" cy="9" r="3" fill="#fbbf24" />
+      <circle cx="14" cy="8" r="3" fill="#fbbf24" stroke={P.black} strokeWidth="1.5" />
       {/* Eye */}
-      <circle cx="16" cy="8" r="0.8" fill="#1f2937" />
+      <circle cx="15" cy="7" r="1" fill={P.black} />
       {/* Beak */}
-      <polygon points="18,9 20,10 18,11" fill="#f97316" />
-      {/* Legs */}
-      <line x1="8" y1="15" x2="7" y2="19" stroke="#f97316" strokeWidth="1" />
-      <line x1="12" y1="15" x2="13" y2="19" stroke="#f97316" strokeWidth="1" />
+      <polygon points="17,8 18,9 17,10" fill="#f97316" stroke={P.black} strokeWidth="0.8" />
+      {/* Comb */}
+      <rect x="13" y="4" width="3" height="2" fill={P.red1} stroke={P.black} strokeWidth="0.8" rx="0.5" />
       {/* Wing */}
-      <ellipse cx="9" cy="11" rx="2" ry="2.5" fill="#f59e0b" />
+      <ellipse cx="7" cy="10" rx="3" ry="2.5" fill="#f59e0b" stroke={P.black} strokeWidth="1" />
+      {/* Legs */}
+      <line x1="7" y1="14" x2="6" y2="17" stroke={P.orange1 || '#f97316'} strokeWidth="1.5" />
+      <line x1="11" y1="14" x2="12" y2="17" stroke="#f97316" strokeWidth="1.5" />
     </svg>
   )
 }
 
 // ================================================================
-// PHASE LEGEND CARD
+// POKEMON DIALOG-BOX TOOLTIP
 // ================================================================
-function PhaseLegendCard({ phase }: { phase: PhaseKey }) {
-  const theme = PHASE_HUD_COLORS[phase]
+function PokeTooltip({ shed, align }: {
+  shed: {
+    id: string; name: string; hens: number; layingRate: number
+    isLaying: boolean; cycleMonth: number; phase: PhaseKey
+    eggsPerDay: number; eggRevenue: number; feedCost: number
+    netBalance: number; weeksLabel: string; progress: number
+  }
+  align: 'left' | 'right'
+}) {
+  const roof = PHASE_ROOF[shed.phase]
+  const phaseColor = roof.main
+
   return (
-    <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border ${theme.border} ${theme.bg} ${theme.text}`}>
-      <span className="text-base">{PHASE_ICONS[phase]}</span>
-      <div>
-        <p className="text-[9px] font-bold">{PHASE_LABELS[phase]}</p>
-        <p className="text-[8px] opacity-70">Fase {PHASE_LABELS[phase] === 'Postura' ? 'produccion' : 'crianza'}</p>
+    <div className="border-[3px] border-gray-800 rounded-lg overflow-hidden shadow-lg"
+      style={{
+        background: 'linear-gradient(135deg, #fefce8 0%, #fef9c3 50%, #fef08a 100%)',
+        animation: 'fadeIn 0.15s ease-out',
+      }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-2.5 py-1.5 border-b-[3px] border-gray-800"
+        style={{ backgroundColor: phaseColor }}>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm">{PHASE_ICONS[shed.phase]}</span>
+          <span className="text-[10px] font-bold text-white drop-shadow-sm">{shed.name}</span>
+        </div>
+        <span className="text-[9px] font-bold text-white/90 bg-black/20 px-1.5 py-0.5 rounded">
+          {PHASE_LABELS[shed.phase]}
+        </span>
+      </div>
+
+      {/* Body */}
+      <div className="px-2.5 py-2 space-y-1.5">
+        {/* Row 1: Hens + Laying rate */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px]">&#x1F414;</span>
+            <span className="text-[10px] font-bold text-gray-800">{fmtNum(shed.hens)}</span>
+            <span className="text-[8px] text-gray-500">aves</span>
+          </div>
+          {shed.isLaying && (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-gray-800">{shed.layingRate}%</span>
+              <span className="text-[8px] text-gray-500">postura</span>
+            </div>
+          )}
+        </div>
+
+        {/* Row 2: Production or Crianza */}
+        {shed.isLaying ? (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px]">&#x1F95A;</span>
+              <span className="text-[10px] font-bold text-orange-700">{fmtNum(shed.eggsPerDay)}</span>
+              <span className="text-[8px] text-gray-500">huevos/dia</span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[9px] text-gray-500 italic">
+            Crianza - Mes {shed.cycleMonth} ({shed.weeksLabel})
+          </div>
+        )}
+
+        {/* Separator */}
+        <div className="border-t border-gray-300" />
+
+        {/* Row 3: Revenue + Feed cost */}
+        {shed.isLaying && (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            <div>
+              <p className="text-[7px] text-gray-400 font-bold uppercase">Ingreso</p>
+              <p className="text-[10px] font-bold text-green-700">{fmtRD(shed.eggRevenue)}</p>
+            </div>
+            <div>
+              <p className="text-[7px] text-gray-400 font-bold uppercase">Feed</p>
+              <p className="text-[10px] font-bold text-red-600">{fmtRD(shed.feedCost)}</p>
+            </div>
+            <div>
+              <p className="text-[7px] text-gray-400 font-bold uppercase">Neto</p>
+              <p className={`text-[10px] font-bold ${shed.netBalance >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                {fmtRD(shed.netBalance)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Progress bar - cycle */}
+        <div>
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[7px] text-gray-400 font-bold uppercase">Ciclo</span>
+            <span className="text-[8px] font-bold text-gray-600">Mes {shed.cycleMonth}/20</span>
+          </div>
+          <div className="h-2.5 bg-gray-300 border border-gray-500 rounded-sm overflow-hidden">
+            <div
+              className="h-full border-r border-gray-500"
+              style={{
+                width: `${shed.progress}%`,
+                backgroundColor: shed.isLaying ? '#4ade80' : '#38bdf8',
+                transition: 'width 0.3s',
+              }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
 // ================================================================
-// STAT GEM (RPG stat card)
+// HUD STAT BLOCK
 // ================================================================
-function StatGem({ icon, label, value, color }: { icon: string; label: string; value: string; color: string }) {
+function StatBlock({ label, value, icon, bg, color }: { label: string; value: string; icon: string; bg: string; color: string }) {
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${color} shadow-sm`}>
-      <span className="text-lg">{icon}</span>
-      <div>
-        <p className="text-[9px] opacity-70 font-medium">{label}</p>
-        <p className="text-sm font-bold">{value}</p>
-      </div>
+    <div className={`flex flex-col items-center justify-center px-2 py-1.5 ${bg}`}>
+      <p className="text-[7px] font-bold text-gray-400 leading-none mb-0.5">{label}</p>
+      <p className={`text-[11px] font-bold ${color} leading-none`}>{value}</p>
     </div>
   )
 }

@@ -146,3 +146,26 @@ Stage Summary:
 - Nuevo componente: /home/z/my-project/src/components/farm-map-view.tsx (~550 lineas)
 - Caracteristicas RPG: HUD bar con HP/coins/eggs, vista aerea 2D con cielo/nubes/sol, 4 galpones con techos por fase, cercas, silo, tanque de agua, gallinas caminando, arboles pixel art, pasto decorativo, lineas scan retro, animaciones (nubes, sol, huevos, gallinas), barra de progreso de ciclo, estado de feed
 - Integracion: Nueva pestana "Vista Granja" como tab 9 de 9
+
+---
+Task ID: 2
+Agent: main
+Task: Pulir vista granja estilo Pokemon retro 90's
+
+Work Log:
+- Leido componente farm-map-view.tsx actual (808 lineas)
+- Reescrito completamente el componente con estetica Pokemon 90's retro
+- Galpones ahora solo muestran sprite de edificio con tejado coloreado por fase
+- Datos del galpon aparecen en tooltip tipo dialog box de Pokemon al hacer hover
+- Eliminado todo overlapping: mapa usa aspect-ratio 16:9 fijo, posiciones porcentuales exactas
+- Estetica Pokemon: bordes negros gruesos (3px), paleta plana sin gradientes, sprite SVG pixel art
+- HUD rediseñado como barra Pokemon con stats compartimentados
+- Leyenda de fases como barra horizontal con divide
+- Build exitoso sin errores, lint limpio
+
+Stage Summary:
+- Componente reescrito: /home/z/my-project/src/components/farm-map-view.tsx (~580 lineas)
+- Galpones: Solo edificio SVG (pared, tejado por fase, puerta, ventanas, nombre). Hover muestra tooltip con datos completos
+- Mapa: 16:9 fijo, cielo con nubes animadas, sol, cesped, cerca perimetral, puerta, silo, tanque de agua, gallinas caminando, letrero
+- Tooltip Pokemon: Fondo crema, borde negro, header con color de fase, datos de produccion/crianza, barra de progreso de ciclo
+- Sin overlapping: Todas las posiciones son porcentuales dentro de contenedor con aspect-ratio fijo
