@@ -62,6 +62,7 @@ interface RemindersProps {
   }
   fmtRD: (v: number) => string
   fmtNum: (v: number) => string
+  batchId?: string | null  // Optional filter to show reminders for a specific batch only
 }
 
 // ================================================================
@@ -194,7 +195,7 @@ function createEmptyReminder(): Reminder {
 // ================================================================
 // MAIN COMPONENT
 // ================================================================
-export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: RemindersProps) {
+export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId }: RemindersProps) {
   const today = new Date().toISOString().split('T')[0]
 
   // ---- State ----
@@ -220,11 +221,18 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum }: Remin
   const [filterCategory, setFilterCategory] = useState<string>('all')
   const [filterPriority, setFilterPriority] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [filterBatch, setFilterBatch] = useState<string>('all')
+  const [filterBatch, setFilterBatch] = useState<string>(batchId || 'all')
   const [filterOrigin, setFilterOrigin] = useState<string>('all') // 'all' | 'auto' | 'manual'
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState<SortField>('dueDate')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  // Auto-set batch filter when batchId prop changes
+  useEffect(() => {
+    if (batchId) {
+      setFilterBatch(batchId)
+    }
+  }, [batchId])
 
   // Ref for print container
   const printRef = useRef<HTMLDivElement>(null)

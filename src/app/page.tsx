@@ -4,353 +4,68 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import OperationsPanel from '@/components/operations-panel'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog'
+import LotCard from '@/components/lot-card'
+import LotDetail from '@/components/lot-detail'
+import ConfigSheet from '@/components/config-sheet'
 import ReportsPanel from '@/components/reports-panel'
 import RemindersPanel from '@/components/reminders-panel'
 import FarmMapView from '@/components/farm-map-view'
 import { generateRemindersForNewBatch, generatePhaseChangeReminders, generateCycleWarningReminder, clearAutoRemindersForBatch } from '@/lib/auto-reminders'
+import type {
+  PhaseKey, FarmConfig, BatchConfig, StructuralExpense, StructuralFrequency,
+  MonthlyRecord,
+} from '@/lib/farm-data'
 import {
-  Calculator,
-  TrendingUp,
-  TrendingDown,
-  DollarSign,
-  Egg,
-  Wheat,
-  Save,
-  RotateCcw,
-  Plus,
-  Minus,
-  BarChart3,
-  PieChart,
-  Info,
-  ClipboardList,
-  Settings,
-  FileText,
-  Building2,
-  Heart,
-  Sparkles,
-  AlertTriangle,
-  CheckCircle2,
-  ArrowRight,
-  Box,
-  Zap,
-  Activity,
-  Target,
-  LayoutGrid,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
-  Wrench,
-  Truck,
-  ShieldCheck,
-  MoreHorizontal,
-  Hammer,
-  ClipboardCheck,
-  FileOutput,
-  RefreshCw,
-  Eye,
-  Printer,
-  Bell,
-  Map,
+  DEFAULT_CONFIG, DEFAULT_FEED, DEFAULT_STRUCTURAL_EXPENSES, PHASE_COLORS,
+  FREQUENCY_LABELS, FREQUENCY_MULTIPLIER, PHASE_KEYS,
+  fmtRD, fmtNum, fmtPct, getPhaseFromMonth, createDefaultBatches,
+  computeCalculations, getAlertCountForBatch, getUrgentReminderCount,
+} from '@/lib/farm-data'
+import {
+  TrendingUp, TrendingDown, DollarSign, Egg, Wheat,
+  Activity, Target, Settings, FileText, Sparkles, AlertTriangle, CheckCircle2,
+  RefreshCw, Bell, Map, FileOutput, ClipboardCheck, ChevronDown, ChevronUp, Eye,
+  Plus, Trash2, Printer,
 } from 'lucide-react'
-
-// ================================================================
-// TYPES
-// ================================================================
-type PhaseKey = 'pre_inicio' | 'inicio' | 'crecimiento' | 'pre_postura' | 'postura'
-
-interface FeedPhase {
-  label: string
-  consumption: number  // grams/bird/day
-  price: number        // RD$/quintal
-  weeks: string        // week range
-}
-
-interface FarmConfig {
-  // === PRECIOS DE VENTA ===
-  eggPrice: number           // RD$ per egg
-  henSalePrice: number       // RD$ per spent hen
-  chickPrice: number         // RD$ per chick
-
-  // === ALIMENTO POR FASE ===
-  feedPhases: Record<PhaseKey, FeedPhase>
-
-  // === COSTOS POR AVE (INVERSION INICIAL) ===
-  vaccinesCostPerBird: number  // RD$
-  equipmentCostPerBird: number // RD$
-  mortalityRate: number        // % expected mortality in rearing
-
-  // === INFRAESTRUCTURA ===
-  shed1Cost: number        // RD$ (galpon principal con equipo)
-  shedAdditionalCost: number // RD$ (galpones adicionales)
-
-  // === OPERACION ===
-  baseLayingRate: number       // % (e.g. 80)
-  layingCycleMonths: number    // months of laying cycle
-  hensPerBatch: number         // default hens per batch
-  fixedCostsMonthly: number    // RD$ monthly overhead
-  otherCosts: number           // RD$ additional monthly
-}
-
-interface BatchConfig {
-  id: string
-  name: string
-  hens: number
-  layingRate: number
-  isLaying: boolean
-  cycleMonth: number
-  phase: PhaseKey
-}
-
-// ================================================================
-// STRUCTURAL EXPENSES
-// ================================================================
-type StructuralFrequency = 'unico' | 'mensual' | 'trimestral' | 'semestral' | 'anual'
-
-interface StructuralExpense {
-  id: string
-  description: string
-  amount: number
-  frequency: StructuralFrequency
-  dateAdded: string
-  isActive: boolean
-}
-
-const FREQUENCY_LABELS: Record<StructuralFrequency, string> = {
-  unico: 'Unico (una vez)',
-  mensual: 'Mensual',
-  trimestral: 'Trimestral',
-  semestral: 'Semestral',
-  anual: 'Anual',
-}
-
-const FREQUENCY_MULTIPLIER: Record<StructuralFrequency, number> = {
-  unico: 1,
-  mensual: 12,
-  trimestral: 4,
-  semestral: 2,
-  anual: 1,
-}
-
-const DEFAULT_STRUCTURAL_EXPENSES: StructuralExpense[] = [
-  { id: 'se-1', description: 'Mantenimiento de bebederos y comederos', amount: 5000, frequency: 'trimestral', dateAdded: '', isActive: true },
-  { id: 'se-2', description: 'Desinfeccion de galpones', amount: 8000, frequency: 'trimestral', dateAdded: '', isActive: true },
-  { id: 'se-3', description: 'Reparacion de cercas y techos', amount: 15000, frequency: 'semestral', dateAdded: '', isActive: true },
-]
-
-interface MonthlyRecord {
-  id: string
-  month: string
-  date: string
-  batches: BatchConfig[]
-  config: FarmConfig
-  notes: string
-  revenue: number
-  expenses: number
-  net: number
-}
-
-// ================================================================
-// DEFAULT CONFIG
-// ================================================================
-
-// Config version - increment to force localStorage reset
-const CONFIG_VERSION = 2
-
-// PRECIOS BASE SANUT NUTRIOVO (RD$/quintal)
-// ================================================================
-const DEFAULT_FEED: Record<PhaseKey, FeedPhase> = {
-  pre_inicio:  { label: 'Pre-Inicio',  consumption: 12,  price: 1986, weeks: 'S0-4' },
-  inicio:      { label: 'Inicio',       consumption: 28,  price: 1986, weeks: 'S5-10' },
-  crecimiento: { label: 'Crecimiento',  consumption: 58,  price: 1724, weeks: 'S11-15' },
-  pre_postura: { label: 'Pre-Postura',  consumption: 85,  price: 1493, weeks: 'S16-18' },
-  postura:     { label: 'Postura',      consumption: 115, price: 1300, weeks: 'S18+' },
-}
-
-const DEFAULT_CONFIG: FarmConfig = {
-  eggPrice: 5.50,
-  henSalePrice: 100,
-  chickPrice: 86.10,
-  feedPhases: DEFAULT_FEED,
-  vaccinesCostPerBird: 52.68,
-  equipmentCostPerBird: 23.60,
-  mortalityRate: 5,
-  shed1Cost: 624750,
-  shedAdditionalCost: 315000,
-  baseLayingRate: 80,
-  layingCycleMonths: 20,
-  hensPerBatch: 2000,
-  fixedCostsMonthly: 85000,
-  otherCosts: 0,
-}
-
-const BATCH_NAMES = ['Galpon 1', 'Galpon 2', 'Galpon 3', 'Galpon 4']
-
-const PHASE_COLORS: Record<PhaseKey, string> = {
-  pre_inicio: 'bg-gray-100 text-gray-700',
-  inicio: 'bg-sky-100 text-sky-700',
-  crecimiento: 'bg-cyan-100 text-cyan-700',
-  pre_postura: 'bg-amber-100 text-amber-700',
-  postura: 'bg-green-100 text-green-700',
-}
-
-const PHASE_KEYS: PhaseKey[] = ['pre_inicio', 'inicio', 'crecimiento', 'pre_postura', 'postura']
-
-// ================================================================
-// HELPERS
-// ================================================================
-function fmtRD(value: number): string {
-  return new Intl.NumberFormat('es-DO', {
-    style: 'currency',
-    currency: 'DOP',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value)
-}
-
-function fmtNum(value: number): string {
-  return new Intl.NumberFormat('es-DO').format(value)
-}
-
-function fmtPct(value: number): string {
-  return value.toFixed(1) + '%'
-}
-
-function getPhaseFromMonth(month: number): PhaseKey {
-  if (month < 1) return 'pre_inicio'      // S0-4 (0-1 mes)
-  if (month < 2.5) return 'inicio'         // S5-10 (1-2.5 meses)
-  if (month < 4) return 'crecimiento'      // S11-15 (2.5-4 meses)
-  if (month < 4.5) return 'pre_postura'    // S16-18 (4-4.5 meses)
-  return 'postura'                          // S18+ (4.5+ meses)
-}
-
-function createDefaultBatches(): BatchConfig[] {
-  return BATCH_NAMES.map((name, i) => ({
-    id: `batch-${i}`,
-    name,
-    hens: DEFAULT_CONFIG.hensPerBatch,
-    layingRate: DEFAULT_CONFIG.baseLayingRate,
-    isLaying: false,
-    cycleMonth: 0,
-    phase: 'pre_inicio' as PhaseKey,
-  }))
-}
-
-// ================================================================
-// SUB COMPONENTS
-// ================================================================
-
-function NumberInput({
-  label, value, onChange, step = 1, min, max, prefix, suffix, className = '',
-  tooltip, disabled = false, highlightOnDefault, defaultValue,
-}: {
-  label: string
-  value: number
-  onChange: (v: number) => void
-  step?: number
-  min?: number
-  max?: number
-  prefix?: string
-  suffix?: string
-  className?: string
-  tooltip?: string
-  disabled?: boolean
-  highlightOnDefault?: boolean
-  defaultValue?: number
-}) {
-  const isChanged = defaultValue !== undefined && value !== defaultValue
-  return (
-    <TooltipProvider delayDuration={200}>
-      <div className={`space-y-1.5 ${className}`}>
-        <div className="flex items-center gap-1">
-          <Label className="text-xs text-stone-600">{label}</Label>
-          {tooltip && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="w-3 h-3 text-stone-400 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-[220px] text-xs">
-                {tooltip}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-        <div className="relative">
-          {prefix && (
-            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-400">{prefix}</span>
-          )}
-          <Input
-            type="number"
-            step={step}
-            min={min}
-            max={max}
-            value={value}
-            onChange={e => onChange(parseFloat(e.target.value) || 0)}
-            disabled={disabled}
-            className={`text-sm h-9 ${prefix ? 'pl-8' : ''} ${suffix ? 'pr-10' : ''} ${
-              highlightOnDefault && isChanged
-                ? 'border-amber-400 bg-amber-50/50'
-                : ''
-            }`}
-          />
-          {suffix && (
-            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-400">{suffix}</span>
-          )}
-        </div>
-      </div>
-    </TooltipProvider>
-  )
-}
-
-function ChangeIndicator({ current, original, unit = '' }: { current: number; original: number; unit?: string }) {
-  if (current === original) return null
-  const diff = current - original
-  const pct = original !== 0 ? ((diff / original) * 100) : 0
-  const isUp = diff > 0
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${isUp ? 'text-red-500' : 'text-green-500'}`}>
-      {isUp ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-      {isUp ? '+' : ''}{fmtNum(Math.abs(diff))}{unit} ({isUp ? '+' : ''}{pct.toFixed(1)}%)
-    </span>
-  )
-}
 
 // ================================================================
 // MAIN COMPONENT
 // ================================================================
 export default function Home() {
+  // ---- Navigation state ----
+  const [view, setView] = useState<'dashboard' | 'lot-detail' | 'reports' | 'history' | 'map' | 'reminders'>('dashboard')
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
+  const [configOpen, setConfigOpen] = useState(false)
+
+  // ---- Core data state (preserved exactly) ----
   const [config, setConfig] = useState<FarmConfig>(() => {
     if (typeof window !== 'undefined') {
       const savedVersion = localStorage.getItem('granja-wd80-config-version')
       const saved = localStorage.getItem('granja-wd80-config')
-      if (saved && savedVersion === String(CONFIG_VERSION)) {
+      if (saved && savedVersion === String(2)) {
         try {
           const parsed = JSON.parse(saved)
           return { ...DEFAULT_CONFIG, ...parsed, feedPhases: { ...DEFAULT_FEED, ...(parsed.feedPhases || {}) } }
         } catch { /* ignore */ }
-      } else if (saved && savedVersion !== String(CONFIG_VERSION)) {
-        // Version mismatch - reset feed prices to new defaults, keep other config
+      } else if (saved && savedVersion !== String(2)) {
         try {
           const parsed = JSON.parse(saved)
-          localStorage.setItem('granja-wd80-config-version', String(CONFIG_VERSION))
+          localStorage.setItem('granja-wd80-config-version', String(2))
           return { ...DEFAULT_CONFIG, ...parsed, feedPhases: { ...DEFAULT_FEED } }
         } catch { /* ignore */ }
       }
-      localStorage.setItem('granja-wd80-config-version', String(CONFIG_VERSION))
+      localStorage.setItem('granja-wd80-config-version', String(2))
     }
     return DEFAULT_CONFIG
   })
@@ -383,47 +98,16 @@ export default function Home() {
   })
   const [notes, setNotes] = useState('')
   const [expandedRecord, setExpandedRecord] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState('config')
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    ventas: true,
-    alimento: true,
-    ave: true,
-    infraestructura: false,
-    operacion: true,
-    estructural: true,
-  })
 
   // Persist to localStorage
-  useEffect(() => {
-    localStorage.setItem('granja-wd80-config', JSON.stringify(config))
-  }, [config])
-  useEffect(() => {
-    localStorage.setItem('granja-wd80-batches', JSON.stringify(batches))
-  }, [batches])
-  useEffect(() => {
-    localStorage.setItem('granja-wd80-records', JSON.stringify(savedRecords))
-  }, [savedRecords])
-  useEffect(() => {
-    localStorage.setItem('granja-wd80-structural', JSON.stringify(structuralExpenses))
-  }, [structuralExpenses])
+  useEffect(() => { localStorage.setItem('granja-wd80-config', JSON.stringify(config)) }, [config])
+  useEffect(() => { localStorage.setItem('granja-wd80-batches', JSON.stringify(batches)) }, [batches])
+  useEffect(() => { localStorage.setItem('granja-wd80-records', JSON.stringify(savedRecords)) }, [savedRecords])
+  useEffect(() => { localStorage.setItem('granja-wd80-structural', JSON.stringify(structuralExpenses)) }, [structuralExpenses])
 
-  const toggleSection = useCallback((key: string) => {
-    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }))
-  }, [])
-
-  // ---- Handlers ----
+  // ---- Handlers (preserved exactly) ----
   const updateConfig = useCallback(<K extends keyof FarmConfig>(key: K, value: FarmConfig[K]) => {
     setConfig(prev => ({ ...prev, [key]: value }))
-  }, [])
-
-  const updateFeedPhase = useCallback((phaseKey: PhaseKey, field: 'consumption' | 'price', value: number) => {
-    setConfig(prev => ({
-      ...prev,
-      feedPhases: {
-        ...prev.feedPhases,
-        [phaseKey]: { ...prev.feedPhases[phaseKey], [field]: value },
-      },
-    }))
   }, [])
 
   const updateBatch = useCallback((id: string, field: keyof BatchConfig, value: boolean | number | string) => {
@@ -448,15 +132,9 @@ export default function Home() {
     const newId = `batch-${batches.length}`
     const newName = `Galpon ${num}`
     setBatches(prev => [...prev, {
-      id: newId,
-      name: newName,
-      hens: config.hensPerBatch,
-      layingRate: config.baseLayingRate,
-      isLaying: false,
-      cycleMonth: 0,
-      phase: 'pre_inicio',
+      id: newId, name: newName, hens: config.hensPerBatch,
+      layingRate: config.baseLayingRate, isLaying: false, cycleMonth: 0, phase: 'pre_inicio',
     }])
-    // Auto-generate reminders for new batch (vaccination schedule, feed transitions, milestones)
     const today = new Date().toISOString().split('T')[0]
     setTimeout(() => {
       generateRemindersForNewBatch(newId, newName, config.hensPerBatch, today)
@@ -465,11 +143,12 @@ export default function Home() {
 
   const removeBatch = useCallback((id: string) => {
     setBatches(prev => prev.filter(b => b.id !== id))
-    // Clean up auto-generated reminders for this batch
-    setTimeout(() => {
-      clearAutoRemindersForBatch(id)
-    }, 100)
-  }, [])
+    setTimeout(() => { clearAutoRemindersForBatch(id) }, 100)
+    if (selectedBatchId === id) {
+      setSelectedBatchId(null)
+      setView('dashboard')
+    }
+  }, [selectedBatchId])
 
   const resetAll = useCallback(() => {
     setConfig(DEFAULT_CONFIG)
@@ -490,12 +169,8 @@ export default function Home() {
       setConfig(prev => ({ ...prev, shed1Cost: DEFAULT_CONFIG.shed1Cost, shedAdditionalCost: DEFAULT_CONFIG.shedAdditionalCost }))
     } else if (section === 'operacion') {
       setConfig(prev => ({
-        ...prev,
-        baseLayingRate: DEFAULT_CONFIG.baseLayingRate,
-        layingCycleMonths: DEFAULT_CONFIG.layingCycleMonths,
-        hensPerBatch: DEFAULT_CONFIG.hensPerBatch,
-        fixedCostsMonthly: DEFAULT_CONFIG.fixedCostsMonthly,
-        otherCosts: DEFAULT_CONFIG.otherCosts,
+        ...prev, baseLayingRate: DEFAULT_CONFIG.baseLayingRate, layingCycleMonths: DEFAULT_CONFIG.layingCycleMonths,
+        hensPerBatch: DEFAULT_CONFIG.hensPerBatch, fixedCostsMonthly: DEFAULT_CONFIG.fixedCostsMonthly, otherCosts: DEFAULT_CONFIG.otherCosts,
       }))
     }
   }, [])
@@ -504,305 +179,8 @@ export default function Home() {
     setSavedRecords(prev => prev.filter(r => r.id !== id))
   }, [])
 
-  // ================================================================
-  // CORE CALCULATIONS - Manual update via "Actualizar" button
-  // ================================================================
-  const [configVersion, setConfigVersion] = useState(0)
-  const [displayedCalcs, setDisplayedCalcs] = useState<ReturnType<typeof computeCalculations> | null>(null)
-
-  // Track config changes to show pending indicator
-  useEffect(() => {
-    setConfigVersion(v => v + 1)
-  }, [config, batches, structuralExpenses])
-
-  // Compute function (pure, no state)
-  function computeCalculations(cfg: FarmConfig, bts: BatchConfig[], se: StructuralExpense[]) {
-    // Per-batch calculations
-    const batchDetails = bts.map(batch => {
-      const phase = batch.phase
-      const feed = cfg.feedPhases[phase]
-      const monthlyFeedKg = (batch.hens * feed.consumption * 30) / 1000
-      const monthlyFeedCost = monthlyFeedKg * (feed.price / 100)  // price is per quintal (100kg)
-
-      const eggsPerDay = batch.isLaying ? batch.hens * (batch.layingRate / 100) : 0
-      const eggsPerMonth = Math.round(eggsPerDay * 30)
-      const eggRevenue = eggsPerMonth * cfg.eggPrice
-
-      const initialInvestmentPerBird = cfg.chickPrice + cfg.vaccinesCostPerBird + cfg.equipmentCostPerBird
-      const batchInvestment = batch.hens * initialInvestmentPerBird
-
-      return {
-        id: batch.id,
-        name: batch.name,
-        phase,
-        hens: batch.hens,
-        isLaying: batch.isLaying,
-        layingRate: batch.layingRate,
-        cycleMonth: batch.cycleMonth,
-        eggsPerDay,
-        eggsPerMonth,
-        eggRevenue,
-        feedConsumption: feed.consumption,
-        feedPrice: feed.price,
-        monthlyFeedKg,
-        monthlyFeedCost,
-        initialInvestmentPerBird,
-        batchInvestment,
-        netBalance: eggRevenue - monthlyFeedCost,
-      }
-    })
-
-    // Totals
-    const totalEggRevenue = batchDetails.reduce((s, b) => s + b.eggRevenue, 0)
-    const totalFeedCost = batchDetails.reduce((s, b) => s + b.monthlyFeedCost, 0)
-    const totalFeedKg = batchDetails.reduce((s, b) => s + b.monthlyFeedKg, 0)
-    const totalRevenue = totalEggRevenue
-
-    // Structural expenses - monthly equivalent
-    const activeStructural = se.filter(e => e.isActive)
-    const structuralMonthlyTotal = activeStructural.reduce((sum, e) => {
-      const mult = FREQUENCY_MULTIPLIER[e.frequency]
-      return sum + (e.amount * mult / 12)
-    }, 0)
-    const structuralAnnualTotal = activeStructural.reduce((sum, e) => sum + e.amount * FREQUENCY_MULTIPLIER[e.frequency], 0)
-
-    const totalExpenses = totalFeedCost + cfg.fixedCostsMonthly + cfg.otherCosts + structuralMonthlyTotal
-    const netProfit = totalRevenue - totalExpenses
-    const layingBatches = bts.filter(b => b.isLaying).length
-    const totalHens = bts.reduce((s, b) => s + b.hens, 0)
-    const totalEggs = batchDetails.reduce((s, b) => s + b.eggsPerMonth, 0)
-
-    // Derived KPIs
-    const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
-    const feedPercentage = totalExpenses > 0 ? (totalFeedCost / totalExpenses) * 100 : 0
-    const costPerEgg = totalEggs > 0 ? totalExpenses / totalEggs : 0
-    const costPerBirdMonthly = totalHens > 0 ? totalExpenses / totalHens : 0
-    const revenuePerBirdMonthly = totalHens > 0 ? totalRevenue / totalHens : 0
-
-    // Feed cost per laying bird per month
-    const layingBirds = bts.filter(b => b.isLaying).reduce((s, b) => s + b.hens, 0)
-    const feedCostPerLayingBird = layingBirds > 0 ? totalFeedCost / layingBirds : 0
-
-    // Hen sale revenue at cycle end
-    const totalHenSaleRevenue = totalHens * cfg.henSalePrice
-
-    // Initial investment for a new batch
-    const newBatchInvestment = cfg.hensPerBatch * (cfg.chickPrice + cfg.vaccinesCostPerBird + cfg.equipmentCostPerBird)
-    const newBatchInvestmentWithMortality = newBatchInvestment / (1 - cfg.mortalityRate / 100)
-
-    // Infrastructure total
-    const infraCost = cfg.shed1Cost + (Math.max(0, bts.length - 1) * cfg.shedAdditionalCost)
-
-    // Monthly pre-lay feed cost (for a batch in rearing)
-    const preLayMonthlyCost = PHASE_KEYS
-      .filter(k => k !== 'postura')
-      .reduce((sum, key) => {
-        const feed = cfg.feedPhases[key]
-        // Approximate: assume ~1 month per phase in rearing
-        const monthlyKg = (cfg.hensPerBatch * feed.consumption * 30) / 1000
-        return sum + (monthlyKg * feed.price / 100)
-      }, 0) / 4 // average across 4 pre-lay months
-
-    // Revenue per quintal of feed (efficiency metric)
-    const layingBatchDetails = batchDetails.filter(b => b.isLaying)
-    const totalLayingFeedCost = layingBatchDetails.reduce((s, b) => s + b.monthlyFeedCost, 0)
-    const revenuePerFeedRD = totalLayingFeedCost > 0 ? totalEggRevenue / totalLayingFeedCost : 0
-
-    // Break-even eggs per day (total)
-    const dailyExpenses = totalExpenses / 30
-    const breakEvenEggsPerDay = cfg.eggPrice > 0 ? Math.ceil(dailyExpenses / cfg.eggPrice) : 0
-
-    // Feed cost breakdown by phase (based on active batches per phase)
-    const feedCostByPhase = PHASE_KEYS.map(key => {
-      const feed = cfg.feedPhases[key]
-      const defFeed = DEFAULT_FEED[key]
-      const batchesInPhase = bts.filter(b => b.phase === key)
-      const hensInPhase = batchesInPhase.reduce((s, b) => s + b.hens, 0)
-      const monthlyKg = (hensInPhase * feed.consumption * 30) / 1000
-      const monthlyCost = monthlyKg * (feed.price / 100)
-      // Cost with default prices
-      const defMonthlyKg = (hensInPhase * defFeed.consumption * 30) / 1000
-      const defMonthlyCost = defMonthlyKg * (defFeed.price / 100)
-      return {
-        phaseKey: key,
-        label: feed.label,
-        batchesCount: batchesInPhase.length,
-        hens: hensInPhase,
-        consumption: feed.consumption,
-        price: feed.price,
-        defaultPrice: defFeed.price,
-        monthlyKg,
-        monthlyCost,
-        defMonthlyCost,
-        priceDiff: feed.price - defFeed.price,
-        costDiff: monthlyCost - defMonthlyCost,
-      }
-    })
-
-    // Total feed cost if all batches were in postura (for reference)
-    const allPosturaFeedCost = bts.reduce((s, b) => {
-      const posturaFeed = cfg.feedPhases.postura
-      return s + ((b.hens * posturaFeed.consumption * 30) / 1000) * (posturaFeed.price / 100)
-    }, 0)
-    // Same with default prices
-    const allPosturaFeedCostDefault = bts.reduce((s, b) => {
-      const posturaFeed = DEFAULT_FEED.postura
-      return s + ((b.hens * posturaFeed.consumption * 30) / 1000) * (posturaFeed.price / 100)
-    }, 0)
-
-    // Total feed cost using default prices (for comparison)
-    const defaultTotalFeedCost = bts.reduce((s, b) => {
-      const defFeed = DEFAULT_FEED[b.phase]
-      const defKg = (b.hens * defFeed.consumption * 30) / 1000
-      return s + defKg * (defFeed.price / 100)
-    }, 0)
-    const feedPriceImpact = totalFeedCost - defaultTotalFeedCost
-
-    return {
-      batchDetails,
-      totalEggRevenue,
-      totalHenSaleRevenue,
-      totalRevenue,
-      totalFeedCost,
-      totalFeedKg,
-      totalExpenses,
-      netProfit,
-      layingBatches,
-      totalHens,
-      totalEggs,
-      profitMargin,
-      feedPercentage,
-      costPerEgg,
-      costPerBirdMonthly,
-      revenuePerBirdMonthly,
-      feedCostPerLayingBird,
-      newBatchInvestment,
-      newBatchInvestmentWithMortality,
-      infraCost,
-      preLayMonthlyCost,
-      revenuePerFeedRD,
-      breakEvenEggsPerDay,
-      dailyExpenses,
-      layingBirds,
-      structuralMonthlyTotal,
-      structuralAnnualTotal,
-      activeStructural: activeStructural.length,
-      totalStructuralItems: se.length,
-      feedCostByPhase,
-      allPosturaFeedCost,
-      allPosturaFeedCostDefault,
-      defaultTotalFeedCost,
-      feedPriceImpact,
-    }
-  }
-
-  // Initial calculation on mount
-  useEffect(() => {
-    if (!displayedCalcs) {
-      setDisplayedCalcs(computeCalculations(config, batches, structuralExpenses))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Keep live calculations always up-to-date (for config section live previews)
-  const liveCalcs = useMemo(() => computeCalculations(config, batches, structuralExpenses), [config, batches, structuralExpenses])
-
-  // Manual update: copies live → displayed
-  const [lastUpdateVersion, setLastUpdateVersion] = useState(0)
-  const hasPendingChanges = configVersion > lastUpdateVersion
-
-  const handleUpdateCalculations = useCallback(() => {
-    setDisplayedCalcs(computeCalculations(config, batches, structuralExpenses))
-    setLastUpdateVersion(configVersion)
-  }, [config, batches, structuralExpenses, configVersion])
-
-  // Top KPI cards use displayedCalcs (manual update)
-  // Config sections use liveCalcs (real-time preview)
-  const calculations = displayedCalcs || liveCalcs
-
-  // Count urgent reminders from localStorage for header badge
-  const [urgentReminderCount, setUrgentReminderCount] = useState(0)
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('granja-wd80-reminders')
-      if (saved) {
-        const reminders = JSON.parse(saved)
-        const today = new Date().toISOString().split('T')[0]
-        const active = reminders.filter((r: { status: string; dueDate: string; priority: string }) =>
-          r.status !== 'completada' && r.status !== 'cancelada'
-        )
-        const overdue = active.filter((r: { dueDate: string }) => {
-          const due = new Date(r.dueDate)
-          due.setHours(0,0,0,0)
-          const now = new Date()
-          now.setHours(0,0,0,0)
-          return due < now
-        })
-        const urgent = active.filter((r: { priority: string; dueDate: string }) => {
-          const due = new Date(r.dueDate)
-          const diff = Math.ceil((due.getTime() - new Date().getTime()) / (1000*60*60*24))
-          return r.priority === 'urgente' && diff <= 1
-        })
-        setUrgentReminderCount(overdue.length + urgent.length)
-      }
-    } catch { /* ignore */ }
-    // Refresh every 2 minutes
-    const interval = setInterval(() => {
-      try {
-        const saved = localStorage.getItem('granja-wd80-reminders')
-        if (saved) {
-          const reminders = JSON.parse(saved)
-          const today = new Date().toISOString().split('T')[0]
-          const active = reminders.filter((r: { status: string; dueDate: string; priority: string }) =>
-            r.status !== 'completada' && r.status !== 'cancelada'
-          )
-          const overdue = active.filter((r: { dueDate: string }) => {
-            const due = new Date(r.dueDate)
-            due.setHours(0,0,0,0)
-            const now = new Date()
-            now.setHours(0,0,0,0)
-            return due < now
-          })
-          const urgent = active.filter((r: { priority: string; dueDate: string }) => {
-            const due = new Date(r.dueDate)
-            const diff = Math.ceil((due.getTime() - new Date().getTime()) / (1000*60*60*24))
-            return r.priority === 'urgente' && diff <= 1
-          })
-          setUrgentReminderCount(overdue.length + urgent.length)
-        }
-      } catch { /* ignore */ }
-    }, 120000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // ================================================================
-  // AUTO-REMINDERS: Watch for phase changes and cycle warnings
-  // ================================================================
-  const prevBatchesRef = useRef(batches)
-  useEffect(() => {
-    const prev = prevBatchesRef.current
-    // Detect phase changes per batch
-    batches.forEach(batch => {
-      const prevBatch = prev.find(b => b.id === batch.id)
-      if (!prevBatch) return
-      if (prevBatch.phase !== batch.phase) {
-        const phaseLabel = DEFAULT_FEED[batch.phase as PhaseKey]?.label || batch.phase
-        generatePhaseChangeReminders(batch.id, batch.name, batch.hens, batch.phase, phaseLabel)
-      }
-      // Detect cycle warnings (for laying batches)
-      if (batch.isLaying && batch.cycleMonth > 0) {
-        const monthsLeft = config.layingCycleMonths - (batch.cycleMonth - 5) // -5 because laying starts at month 5
-        if (monthsLeft <= 3 && monthsLeft > 0) {
-          generateCycleWarningReminder(batch.id, batch.name, batch.cycleMonth, config.layingCycleMonths)
-        }
-      }
-    })
-    prevBatchesRef.current = batches
-  }, [batches, config.layingCycleMonths])
-
   const saveRecord = useCallback(() => {
     const now = new Date()
-    // Always use latest live calculations for saving records
     const currentCalcs = computeCalculations(config, batches, structuralExpenses)
     const record: MonthlyRecord = {
       id: `rec-${Date.now()}`,
@@ -818,6 +196,84 @@ export default function Home() {
     setSavedRecords(prev => [record, ...prev])
     setNotes('')
   }, [batches, config, notes, structuralExpenses])
+
+  // ================================================================
+  // CALCULATIONS ENGINE (preserved exactly)
+  // ================================================================
+  const [configVersion, setConfigVersion] = useState(0)
+  const [displayedCalcs, setDisplayedCalcs] = useState<ReturnType<typeof computeCalculations> | null>(null)
+
+  useEffect(() => { setConfigVersion(v => v + 1) }, [config, batches, structuralExpenses])
+
+  useEffect(() => {
+    if (!displayedCalcs) {
+      setDisplayedCalcs(computeCalculations(config, batches, structuralExpenses))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const liveCalcs = useMemo(() => computeCalculations(config, batches, structuralExpenses), [config, batches, structuralExpenses])
+  const [lastUpdateVersion, setLastUpdateVersion] = useState(0)
+  const hasPendingChanges = configVersion > lastUpdateVersion
+  const calculations = displayedCalcs || liveCalcs
+
+  const handleUpdateCalculations = useCallback(() => {
+    setDisplayedCalcs(computeCalculations(config, batches, structuralExpenses))
+    setLastUpdateVersion(configVersion)
+  }, [config, batches, structuralExpenses, configVersion])
+
+  // Urgent reminders
+  const [urgentReminderCount, setUrgentReminderCount] = useState(0)
+  useEffect(() => {
+    const update = () => { setUrgentReminderCount(getUrgentReminderCount()) }
+    update()
+    const interval = setInterval(update, 120000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Auto-reminders: Watch for phase changes and cycle warnings
+  const prevBatchesRef = useRef(batches)
+  useEffect(() => {
+    const prev = prevBatchesRef.current
+    batches.forEach(batch => {
+      const prevBatch = prev.find(b => b.id === batch.id)
+      if (!prevBatch) return
+      if (prevBatch.phase !== batch.phase) {
+        const phaseLabel = DEFAULT_FEED[batch.phase as PhaseKey]?.label || batch.phase
+        generatePhaseChangeReminders(batch.id, batch.name, batch.hens, batch.phase, phaseLabel)
+      }
+      if (batch.isLaying && batch.cycleMonth > 0) {
+        const monthsLeft = config.layingCycleMonths - (batch.cycleMonth - 5)
+        if (monthsLeft <= 3 && monthsLeft > 0) {
+          generateCycleWarningReminder(batch.id, batch.name, batch.cycleMonth, config.layingCycleMonths)
+        }
+      }
+    })
+    prevBatchesRef.current = batches
+  }, [batches, config.layingCycleMonths])
+
+  // ---- Navigation helpers ----
+  const openLotDetail = useCallback((batchId: string) => {
+    setSelectedBatchId(batchId)
+    setView('lot-detail')
+  }, [])
+
+  const goBack = useCallback(() => {
+    setView('dashboard')
+    setSelectedBatchId(null)
+  }, [])
+
+  // ---- Selected batch ----
+  const selectedBatch = selectedBatchId ? batches.find(b => b.id === selectedBatchId) : null
+  const selectedCalc = selectedBatchId ? {
+    ...liveCalcs,
+    batchDetails: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId),
+    totalEggRevenue: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.eggRevenue, 0),
+    totalFeedCost: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.monthlyFeedCost, 0),
+    totalHens: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.hens, 0),
+    totalEggs: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.eggsPerMonth, 0),
+    layingBirds: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId && b.isLaying).reduce((s, b) => s + b.hens, 0),
+  } : null
 
   // ================================================================
   // RENDER
@@ -847,10 +303,7 @@ export default function Home() {
                 {fmtRD(liveCalcs.netProfit)}/mes
               </Badge>
               {urgentReminderCount > 0 && (
-                <button
-                  onClick={() => setActiveTab('reminders')}
-                  className="relative cursor-pointer"
-                >
+                <button onClick={() => setView('reminders')} className="relative cursor-pointer">
                   <Badge className="text-xs bg-red-100 text-red-700 hover:bg-red-200 transition-colors cursor-pointer">
                     <Bell className="w-3 h-3 mr-1" />
                     {urgentReminderCount} alerta{urgentReminderCount !== 1 ? 's' : ''}
@@ -858,1487 +311,409 @@ export default function Home() {
                   <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
                 </button>
               )}
+              <button
+                onClick={() => setConfigOpen(true)}
+                className="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center transition-colors"
+              >
+                <Settings className="w-4 h-4 text-stone-500" />
+              </button>
             </div>
           </div>
         </div>
       </header>
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5">
-        {/* Summary Cards - always visible */}
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5 mb-5">
-          <Card className="border-l-4 border-l-green-500">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <TrendingUp className="w-3.5 h-3.5 text-green-600" />
-                <span className="text-[10px] font-medium text-stone-500 uppercase">Ingresos</span>
-              </div>
-              <p className="text-base sm:text-lg font-bold text-green-700">{fmtRD(calculations.totalRevenue)}</p>
-              <p className="text-[10px] text-stone-400">{fmtNum(calculations.totalEggs)} huevos</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-red-500">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <TrendingDown className="w-3.5 h-3.5 text-red-600" />
-                <span className="text-[10px] font-medium text-stone-500 uppercase">Gastos</span>
-              </div>
-              <p className="text-base sm:text-lg font-bold text-red-700">{fmtRD(calculations.totalExpenses)}</p>
-              <p className="text-[10px] text-stone-400">
-                Feed: {fmtRD(calculations.totalFeedCost)}
-                {calculations.feedPriceImpact !== 0 && (
-                  <span className={`ml-1 font-medium ${calculations.feedPriceImpact > 0 ? 'text-red-500' : 'text-green-500'}`}>
-                    ({calculations.feedPriceImpact > 0 ? '+' : ''}{fmtRD(calculations.feedPriceImpact)})
-                  </span>
-                )}
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-amber-500">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-                <span className="text-[10px] font-medium text-stone-500 uppercase">Neto</span>
-              </div>
-              <p className={`text-base sm:text-lg font-bold ${calculations.netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                {fmtRD(calculations.netProfit)}
-              </p>
-              <p className="text-[10px] text-stone-400">Margen: {fmtPct(calculations.profitMargin)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-orange-500">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Egg className="w-3.5 h-3.5 text-orange-600" />
-                <span className="text-[10px] font-medium text-stone-500 uppercase">Costo/Huevo</span>
-              </div>
-              <p className="text-base sm:text-lg font-bold text-stone-800">{fmtRD(calculations.costPerEgg)}</p>
-              <p className="text-[10px] text-stone-400">Venta: {fmtRD(config.eggPrice)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-emerald-500">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Zap className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-[10px] font-medium text-stone-500 uppercase">Feed/Gasto</span>
-              </div>
-              <p className="text-base sm:text-lg font-bold text-stone-800">{fmtPct(calculations.feedPercentage)}</p>
-              <p className="text-[10px] text-stone-400">{fmtRD(calculations.totalFeedCost)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-violet-500">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Target className="w-3.5 h-3.5 text-violet-600" />
-                <span className="text-[10px] font-medium text-stone-500 uppercase">Eq. Diario</span>
-              </div>
-              <p className="text-base sm:text-lg font-bold text-stone-800">{fmtNum(calculations.breakEvenEggsPerDay)}</p>
-              <p className="text-[10px] text-stone-400">huevos/dia min</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Update Button Bar */}
-        <div className="flex items-center justify-between mb-4 p-3 rounded-xl bg-white border-2 border-dashed transition-all duration-300 ${
-          hasPendingChanges 
-            ? 'border-amber-400 bg-amber-50/50 shadow-sm' 
-            : 'border-green-300 bg-green-50/30'
-        }">
-          <div className="flex items-center gap-2.5">
-            {hasPendingChanges ? (
-              <>
-                <div className="relative">
-                  <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+        {/* ====================== DASHBOARD VIEW ====================== */}
+        {view === 'dashboard' && (
+          <div className="space-y-6">
+            {/* Summary KPI bar (6 cards) */}
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
+              <Card className="border-l-4 border-l-green-500">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-green-600" />
+                    <span className="text-[10px] font-medium text-stone-500 uppercase">Ingresos</span>
                   </div>
-                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-amber-800">Cambios pendientes de actualizar</p>
-                  <p className="text-[11px] text-amber-600">Has realizado cambios en la configuracion. Haz clic en Actualizar para refrescar los numeros.</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-green-800">Calculos actualizados</p>
-                  <p className="text-[11px] text-green-600">Los numeros reflejan la configuracion actual. Puedes hacer cambios y luego actualizar.</p>
-                </div>
-              </>
-            )}
+                  <p className="text-base sm:text-lg font-bold text-green-700">{fmtRD(calculations.totalRevenue)}</p>
+                  <p className="text-[10px] text-stone-400">{fmtNum(calculations.totalEggs)} huevos</p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-red-500">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <TrendingDown className="w-3.5 h-3.5 text-red-600" />
+                    <span className="text-[10px] font-medium text-stone-500 uppercase">Gastos</span>
+                  </div>
+                  <p className="text-base sm:text-lg font-bold text-red-700">{fmtRD(calculations.totalExpenses)}</p>
+                  <p className="text-[10px] text-stone-400">
+                    Feed: {fmtRD(calculations.totalFeedCost)}
+                    {calculations.feedPriceImpact !== 0 && (
+                      <span className={`ml-1 font-medium ${calculations.feedPriceImpact > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                        ({calculations.feedPriceImpact > 0 ? '+' : ''}{fmtRD(calculations.feedPriceImpact)})
+                      </span>
+                    )}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-amber-500">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+                    <span className="text-[10px] font-medium text-stone-500 uppercase">Neto</span>
+                  </div>
+                  <p className={`text-base sm:text-lg font-bold ${calculations.netProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    {fmtRD(calculations.netProfit)}
+                  </p>
+                  <p className="text-[10px] text-stone-400">Margen: {fmtPct(calculations.profitMargin)}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-orange-500">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Egg className="w-3.5 h-3.5 text-orange-600" />
+                    <span className="text-[10px] font-medium text-stone-500 uppercase">Costo/Huevo</span>
+                  </div>
+                  <p className="text-base sm:text-lg font-bold text-stone-800">{fmtRD(calculations.costPerEgg)}</p>
+                  <p className="text-[10px] text-stone-400">Venta: {fmtRD(config.eggPrice)}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-emerald-500">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Wheat className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="text-[10px] font-medium text-stone-500 uppercase">Feed/Gasto</span>
+                  </div>
+                  <p className="text-base sm:text-lg font-bold text-stone-800">{fmtPct(calculations.feedPercentage)}</p>
+                  <p className="text-[10px] text-stone-400">{fmtRD(calculations.totalFeedCost)}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-violet-500">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Target className="w-3.5 h-3.5 text-violet-600" />
+                    <span className="text-[10px] font-medium text-stone-500 uppercase">Eq. Diario</span>
+                  </div>
+                  <p className="text-base sm:text-lg font-bold text-stone-800">{fmtNum(calculations.breakEvenEggsPerDay)}</p>
+                  <p className="text-[10px] text-stone-400">huevos/dia min</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Update Button */}
+            <div className={`flex items-center justify-between mb-6 p-3 rounded-xl bg-white border-2 border-dashed transition-all duration-300 ${
+              hasPendingChanges ? 'border-amber-400 bg-amber-50/50 shadow-sm' : 'border-green-300 bg-green-50/30'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                {hasPendingChanges ? (
+                  <>
+                    <div className="relative">
+                      <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800">Cambios pendientes</p>
+                      <p className="text-[11px] text-amber-600">Actualiza los numeros.</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-green-800">Calculos actualizados</p>
+                      <p className="text-[11px] text-green-600">Los numeros reflejan la configuracion actual.</p>
+                    </div>
+                  </>
+                )}
+              </div>
+              <Button
+                onClick={handleUpdateCalculations}
+                className={`shrink-0 font-semibold text-sm px-5 h-10 transition-all duration-200 ${
+                  hasPendingChanges ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md hover:shadow-lg' : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${hasPendingChanges ? 'animate-spin' : ''}`}
+                style={hasPendingChanges ? { animationDuration: '2s' } : {}} />
+                Actualizar
+              </Button>
+            </div>
+
+            {/* Lot Cards Grid */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-bold text-stone-800">Lotes</h2>
+                <Badge variant="outline" className="text-xs">{batches.length} lotes</Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {batches.map(batch => (
+                  <LotCard
+                    key={batch.id}
+                    batch={batch}
+                    calc={liveCalcs}
+                    config={config}
+                    onClick={() => openLotDetail(batch.id)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Quick Access Cards */}
+            <div>
+              <h2 className="text-base font-bold text-stone-800 mb-3">Herramientas</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <button
+                  onClick={() => setView('reports')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
+                      <FileOutput className="w-5 h-5 text-emerald-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Reportes</h3>
+                      <p className="text-[11px] text-stone-400">Contable, ingeniero, veterinario, compra y RRHH</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setView('history')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center group-hover:bg-violet-200 transition-colors">
+                      <FileText className="w-5 h-5 text-violet-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Historial</h3>
+                      <p className="text-[11px] text-stone-400">{savedRecords.length} registros guardados</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setView('map')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-sky-100 flex items-center justify-center group-hover:bg-sky-200 transition-colors">
+                      <Map className="w-5 h-5 text-sky-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Vista Granja</h3>
+                      <p className="text-[11px] text-stone-400">Mapa interactivo de la granja</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Floating Add Button */}
+            <div className="fixed bottom-6 right-6 z-40">
+              <Button
+                onClick={addBatch}
+                size="lg"
+                className="h-14 w-14 rounded-full shadow-lg bg-green-600 hover:bg-green-700 text-white hover:shadow-xl transition-all"
+              >
+                <Plus className="w-6 h-6" />
+              </Button>
+            </div>
           </div>
-          <Button
-            onClick={handleUpdateCalculations}
-            className={`shrink-0 font-semibold text-sm px-5 h-10 transition-all duration-200 ${
-              hasPendingChanges
-                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md hover:shadow-lg'
-                : 'bg-green-600 hover:bg-green-700 text-white'
-            }`}
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${hasPendingChanges ? 'animate-spin' : ''}`} style={hasPendingChanges ? { animationDuration: '2s' } : {}} />
-            Actualizar
-          </Button>
-        </div>
+        )}
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-9 mb-5">
-            <TabsTrigger value="config" className="text-[10px] sm:text-sm">
-              <Settings className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              Config
-            </TabsTrigger>
-            <TabsTrigger value="batches" className="text-[10px] sm:text-sm">
-              <ClipboardList className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              Lotes
-            </TabsTrigger>
-            <TabsTrigger value="operations" className="text-[10px] sm:text-sm">
-              <ClipboardCheck className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              Operaciones
-            </TabsTrigger>
-            <TabsTrigger value="details" className="text-[10px] sm:text-sm">
-              <BarChart3 className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              Detalle
-            </TabsTrigger>
-            <TabsTrigger value="kpis" className="text-[10px] sm:text-sm">
-              <Sparkles className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              KPIs
-            </TabsTrigger>
-            <TabsTrigger value="reports" className="text-[10px] sm:text-sm">
-              <FileOutput className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              Reportes
-            </TabsTrigger>
-            <TabsTrigger value="reminders" className="text-[10px] sm:text-sm">
-              <Bell className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              Alertas
-            </TabsTrigger>
-            <TabsTrigger value="map" className="text-[10px] sm:text-sm">
-              <Map className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              Vista Granja
-            </TabsTrigger>
-            <TabsTrigger value="history" className="text-[10px] sm:text-sm">
-              <FileText className="w-3.5 h-3.5 mr-0.5 hidden sm:inline sm:w-4 sm:h-4 sm:mr-1" />
-              Historial
-            </TabsTrigger>
-          </TabsList>
+        {/* ====================== LOT DETAIL VIEW ====================== */}
+        {view === 'lot-detail' && selectedBatch && selectedCalc && (
+          <LotDetail
+            batch={selectedBatch}
+            calc={selectedCalc}
+            config={config}
+            onBack={goBack}
+            updateBatch={updateBatch}
+            removeBatch={removeBatch}
+          />
+        )}
 
-          {/* ============ TAB: CONFIGURACION BASE ============ */}
-          <TabsContent value="config">
-            <div className="space-y-4">
+        {/* ====================== REPORTS VIEW ====================== */}
+        {view === 'reports' && (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Button variant="ghost" size="sm" onClick={goBack} className="gap-1 text-xs h-8">
+                <ChevronLeft className="w-4 h-4" /> Volver
+              </Button>
+              <h2 className="text-lg font-bold text-stone-800">Reportes</h2>
+            </div>
+            <ReportsPanel
+              batches={batches}
+              config={config}
+              calculations={liveCalcs}
+              structuralExpenses={structuralExpenses}
+              farmName="Granja Nidal"
+            />
+          </div>
+        )}
 
-              {/* Section 1: PRECIOS DE VENTA */}
-              <Card>
-                <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => toggleSection('ventas')}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                        <DollarSign className="w-4 h-4 text-green-700" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">Precios de Venta</CardTitle>
-                        <CardDescription className="text-[11px]">Precios actuales del mercado para tus productos</CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" className="text-[10px] h-7 text-stone-400"
-                        onClick={e => { e.stopPropagation(); resetSection('ventas') }}>
-                        <RotateCcw className="w-3 h-3 mr-1" /> Reset
-                      </Button>
-                      {openSections.ventas ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-                    </div>
+        {/* ====================== HISTORY VIEW ====================== */}
+        {view === 'history' && (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Button variant="ghost" size="sm" onClick={goBack} className="gap-1 text-xs h-8">
+                <ChevronLeft className="w-4 h-4" /> Volver
+              </Button>
+              <h2 className="text-lg font-bold text-stone-800">Historial</h2>
+            </div>
+
+            {/* Notes */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Notas del Mes</CardTitle>
+                <CardDescription className="text-[11px">Observaciones o comentarios sobre el mes actual</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <textarea
+                  className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="Ej: Lote 2 con mortalidad elevada..."
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Records */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-stone-600" /> Registros Guardados
+                    </CardTitle>
+                    <CardDescription className="text-[11px]">Historial mensual ({savedRecords.length} registros)</CardDescription>
                   </div>
-                </CardHeader>
-                {openSections.ventas && (
-                  <CardContent>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <NumberInput
-                        label="Precio por Huevo"
-                        value={config.eggPrice}
-                        onChange={v => updateConfig('eggPrice', v)}
-                        step={0.10}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.eggPrice}
-                        highlightOnDefault
-                        tooltip="Precio de venta al publico por cada huevo. Afecta directamente el ingreso total."
-                      />
-                      <NumberInput
-                        label="Venta Gallina de Desecho"
-                        value={config.henSalePrice}
-                        onChange={v => updateConfig('henSalePrice', v)}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.henSalePrice}
-                        highlightOnDefault
-                        tooltip="Precio por gallina al final del ciclo de postura (20 meses). Ingreso de disposicion."
-                      />
-                      <NumberInput
-                        label="Precio Pollita/ Ave Nueva"
-                        value={config.chickPrice}
-                        onChange={v => updateConfig('chickPrice', v)}
-                        step={0.10}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.chickPrice}
-                        highlightOnDefault
-                        tooltip="Costo de adquisicion de cada pollita WD80. Afecta la inversion inicial por lote."
-                      />
-                    </div>
-                    {/* Live calculation preview */}
-                    <div className="mt-3 p-2.5 bg-green-50 rounded-lg">
-                      <p className="text-[11px] text-green-800">
-                        Con {fmtNum(config.hensPerBatch)} aves al {config.baseLayingRate}%: Ingreso por lote en postura = <strong>{fmtRD(config.hensPerBatch * (config.baseLayingRate / 100) * 30 * config.eggPrice)}/mes</strong>
-                        {' | '}Ingreso por gallina al desecho = <strong>{fmtRD(config.henSalePrice)}</strong>
-                      </p>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              {/* Section 2: ALIMENTO POR FASE */}
-              <Card>
-                <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => toggleSection('alimento')}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                        <Wheat className="w-4 h-4 text-amber-700" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">Alimento por Fase</CardTitle>
-                        <CardDescription className="text-[11px]">Precios (RD$/qq) y consumo (g/ave/dia) por cada fase. Marca: Nutriovo Sanut</CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" className="text-[10px] h-7 text-stone-400"
-                        onClick={e => { e.stopPropagation(); resetSection('alimento') }}>
-                        <RotateCcw className="w-3 h-3 mr-1" /> Reset
-                      </Button>
-                      {openSections.alimento ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-                    </div>
+                  {savedRecords.length > 0 && (
+                    <Button variant="outline" size="sm" className="text-[10px] h-7 text-red-500"
+                      onClick={() => { if (confirm('Borrar todos los registros?')) setSavedRecords([]) }}>
+                      <Trash2 className="w-3 h-3 mr-1" /> Borrar todo
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {savedRecords.length === 0 ? (
+                  <div className="text-center py-10 text-stone-400">
+                    <FileText className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                    <p className="text-sm">No hay registros guardados aun.</p>
+                    <p className="text-xs mt-1">Configura y guarda el primer registro.</p>
                   </div>
-                </CardHeader>
-                {openSections.alimento && (
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs">Fase</TableHead>
-                            <TableHead className="text-xs">Semanas</TableHead>
-                            <TableHead className="text-xs text-right">Consumo (g/ave/dia)</TableHead>
-                            <TableHead className="text-xs text-right">Precio Actual (RD$/qq)</TableHead>
-                            <TableHead className="text-xs text-right">Precio Base</TableHead>
-                            <TableHead className="text-xs text-right">Costo mes/lote</TableHead>
-                            <TableHead className="text-xs text-center">Cambio vs Base</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {PHASE_KEYS.map(key => {
-                            const feed = config.feedPhases[key]
-                            const defFeed = DEFAULT_FEED[key]
-                            const monthlyCost = (config.hensPerBatch * feed.consumption * 30 * feed.price) / 100000
-                            const defMonthlyCost = (DEFAULT_CONFIG.hensPerBatch * defFeed.consumption * 30 * defFeed.price) / 100000
-                            const isPriceChanged = feed.price !== defFeed.price
-                            return (
-                              <TableRow key={key} className={`group ${isPriceChanged ? 'bg-amber-50/50' : ''}`}>
-                                <TableCell>
-                                  <Badge className={`${PHASE_COLORS[key]} text-[10px] whitespace-nowrap`}>
-                                    {feed.label}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-xs text-stone-500">{feed.weeks}</TableCell>
-                                <TableCell className="text-right">
-                                  <Input
-                                    type="number"
-                                    step={1}
-                                    min={0}
-                                    max={200}
-                                    value={feed.consumption}
-                                    onChange={e => updateFeedPhase(key, 'consumption', parseFloat(e.target.value) || 0)}
-                                    className="w-20 h-7 text-xs text-right mx-auto"
-                                  />
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <Input
-                                    type="number"
-                                    step={50}
-                                    min={0}
-                                    value={feed.price}
-                                    onChange={e => updateFeedPhase(key, 'price', parseFloat(e.target.value) || 0)}
-                                    className={`w-24 h-7 text-xs text-right mx-auto ${isPriceChanged ? 'border-amber-400 bg-amber-50' : ''}`}
-                                  />
-                                </TableCell>
-                                <TableCell className="text-right text-xs text-stone-400">
-                                  {fmtNum(defFeed.price)}
-                                  {isPriceChanged && (
-                                    <div className={`text-[9px] font-bold ${feed.price > defFeed.price ? 'text-red-500' : 'text-green-500'}`}>
-                                      {feed.price > defFeed.price ? '+' : ''}{fmtNum(feed.price - defFeed.price)}
-                                    </div>
-                                  )}
-                                </TableCell>
-                                <TableCell className="text-right text-xs font-medium">{fmtRD(monthlyCost)}</TableCell>
-                                <TableCell className="text-center">
-                                  <ChangeIndicator current={monthlyCost} original={defMonthlyCost} />
-                                </TableCell>
-                              </TableRow>
-                            )
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      <Button variant="outline" size="sm" className="text-[10px] h-7"
-                        onClick={() => setConfig(prev => ({ ...prev, feedPhases: { ...DEFAULT_FEED } }))}>
-                        Precios base originales
-                      </Button>
-                      <Button variant="outline" size="sm" className="text-[10px] h-7"
-                        onClick={() => {
-                          const p = config.feedPhases.postura.price
-                          setConfig(prev => ({
-                            ...prev,
-                            feedPhases: {
-                              ...prev.feedPhases,
-                              pre_inicio: { ...prev.feedPhases.pre_inicio, price: Math.round(p * 1.87) },
-                              inicio: { ...prev.feedPhases.inicio, price: Math.round(p * 1.73) },
-                              crecimiento: { ...prev.feedPhases.crecimiento, price: Math.round(p * 1.60) },
-                              pre_postura: { ...prev.feedPhases.pre_postura, price: Math.round(p * 1.47) },
-                            }
-                          }))
-                        }}>
-                        Proporcional a postura ({fmtRD(config.feedPhases.postura.price)})
-                      </Button>
-                    </div>
-                    {/* Live calculation - Phase breakdown */}
-                    <div className="mt-3 p-3 bg-amber-50 rounded-lg space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-semibold text-amber-900">IMPACTO DE PRECIOS DE ALIMENTO</p>
-                        {liveCalcs.feedPriceImpact !== 0 && (
-                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            liveCalcs.feedPriceImpact > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                          }`}>
-                            {liveCalcs.feedPriceImpact > 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-                            {liveCalcs.feedPriceImpact > 0 ? '+' : ''}{fmtRD(liveCalcs.feedPriceImpact)} vs precios base
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
-                        {liveCalcs.feedCostByPhase.map(fp => (
-                          <div key={fp.phaseKey} className={`flex items-center justify-between px-2 py-1.5 rounded ${fp.batchesCount > 0 ? 'bg-white border border-amber-200' : 'bg-amber-100/50 opacity-70'}`}>
-                            <div className="flex items-center gap-1.5">
-                              <span className={`w-1.5 h-1.5 rounded-full ${fp.batchesCount > 0 ? 'bg-green-500' : 'bg-stone-300'}`}></span>
-                              <span className="text-amber-800">{fp.label}</span>
-                              <span className="text-stone-400">({fp.batchesCount} lot{fp.batchesCount !== 1 ? 'es' : 'e'})</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-medium">{fmtRD(fp.monthlyCost)}</span>
-                              {fp.priceDiff !== 0 && (
-                                <span className={`text-[9px] font-bold ${fp.priceDiff > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                  {fp.priceDiff > 0 ? '+' : ''}{fmtNum(fp.priceDiff)}/qq
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="border-t border-amber-200 pt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-amber-800">
-                        <span>Feed total: <strong>{fmtRD(liveCalcs.totalFeedCost)}</strong> ({fmtNum(Math.round(liveCalcs.totalFeedKg))} kg)</span>
-                        <span>Si todos en postura: <strong>{fmtRD(liveCalcs.allPosturaFeedCost)}</strong></span>
-                        <span>Feed/ave postura: <strong>{fmtRD(liveCalcs.feedCostPerLayingBird)}/mes</strong></span>
-                        <span>RD$ ingreso/RD$ feed: <strong>x{liveCalcs.revenuePerFeedRD.toFixed(2)}</strong></span>
-                      </div>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              {/* Section 3: COSTOS POR AVE */}
-              <Card>
-                <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => toggleSection('ave')}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
-                        <Heart className="w-4 h-4 text-violet-700" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">Costos por Ave (Inversion Inicial)</CardTitle>
-                        <CardDescription className="text-[11px]">Gastos al iniciar cada lote nuevo de pollitas</CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" className="text-[10px] h-7 text-stone-400"
-                        onClick={e => { e.stopPropagation(); resetSection('ave') }}>
-                        <RotateCcw className="w-3 h-3 mr-1" /> Reset
-                      </Button>
-                      {openSections.ave ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-                    </div>
-                  </div>
-                </CardHeader>
-                {openSections.ave && (
-                  <CardContent>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <NumberInput
-                        label="Costo Vacunas / Ave"
-                        value={config.vaccinesCostPerBird}
-                        onChange={v => updateConfig('vaccinesCostPerBird', v)}
-                        step={0.01}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.vaccinesCostPerBird}
-                        highlightOnDefault
-                        tooltip="Incluye Newcastle, Gumboro, Bronquitis, etc. Plan vacunal completo WD80."
-                      />
-                      <NumberInput
-                        label="Costo Equipo / Ave"
-                        value={config.equipmentCostPerBird}
-                        onChange={v => updateConfig('equipmentCostPerBird', v)}
-                        step={0.01}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.equipmentCostPerBird}
-                        highlightOnDefault
-                        tooltip="Bebederos, comederos, nidos, termometros, etc. Amortizado por ave."
-                      />
-                      <NumberInput
-                        label="Mortalidad Esperada (Cria)"
-                        value={config.mortalityRate}
-                        onChange={v => updateConfig('mortalityRate', Math.min(20, Math.max(0, v)))}
-                        step={0.5}
-                        min={0}
-                        max={20}
-                        suffix="%"
-                        defaultValue={DEFAULT_CONFIG.mortalityRate}
-                        highlightOnDefault
-                        tooltip="% de aves que no llegan a postura. Ajusta la inversion real por ave productiva."
-                      />
-                    </div>
-                    <div className="mt-3 p-2.5 bg-violet-50 rounded-lg">
-                      <p className="text-[11px] text-violet-800">
-                        Inversion por ave: <strong>{fmtRD(config.chickPrice + config.vaccinesCostPerBird + config.equipmentCostPerBird)}</strong>
-                        {' '}(pollita {fmtRD(config.chickPrice)} + vacunas {fmtRD(config.vaccinesCostPerBird)} + equipo {fmtRD(config.equipmentCostPerBird)})
-                        {' | '}Con {config.mortalityRate}% mortalidad: <strong>{fmtRD(liveCalcs.newBatchInvestmentWithMortality)}/lote</strong> ({fmtNum(config.hensPerBatch)} aves)
-                      </p>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              {/* Section 4: INFRAESTRUCTURA */}
-              <Card>
-                <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => toggleSection('infraestructura')}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-stone-200 flex items-center justify-center">
-                        <Building2 className="w-4 h-4 text-stone-700" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">Infraestructura</CardTitle>
-                        <CardDescription className="text-[11px]">Costos de construccion y equipamiento de galpones</CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" className="text-[10px] h-7 text-stone-400"
-                        onClick={e => { e.stopPropagation(); resetSection('infraestructura') }}>
-                        <RotateCcw className="w-3 h-3 mr-1" /> Reset
-                      </Button>
-                      {openSections.infraestructura ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-                    </div>
-                  </div>
-                </CardHeader>
-                {openSections.infraestructura && (
-                  <CardContent>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <NumberInput
-                        label="Galpon 1 (Completo con Equipo)"
-                        value={config.shed1Cost}
-                        onChange={v => updateConfig('shed1Cost', v)}
-                        step={5000}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.shed1Cost}
-                        highlightOnDefault
-                        tooltip="Construccion + equipamiento completo del primer galpon. Incluyeestructura, electricidad, agua."
-                      />
-                      <NumberInput
-                        label="Galpones Adicionales (c/u)"
-                        value={config.shedAdditionalCost}
-                        onChange={v => updateConfig('shedAdditionalCost', v)}
-                        step={5000}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.shedAdditionalCost}
-                        highlightOnDefault
-                        tooltip="Costo de cada galpon adicional. Mas economico al compartir infraestructura del galpon 1."
-                      />
-                    </div>
-                    <div className="mt-3 p-2.5 bg-stone-100 rounded-lg">
-                      <p className="text-[11px] text-stone-700">
-                        Infraestructura total ({batches.length} galpones): <strong>{fmtRD(liveCalcs.infraCost)}</strong>
-                        {' | '}Galpon 1: {fmtRD(config.shed1Cost)} + {Math.max(0, batches.length - 1)} adicionales x {fmtRD(config.shedAdditionalCost)}
-                      </p>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              {/* Section 5: OPERACION */}
-              <Card>
-                <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => toggleSection('operacion')}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center">
-                        <LayoutGrid className="w-4 h-4 text-sky-700" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">Parametros de Operacion</CardTitle>
-                        <CardDescription className="text-[11px]">Variables operativas del negocio avicola</CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" className="text-[10px] h-7 text-stone-400"
-                        onClick={e => { e.stopPropagation(); resetSection('operacion') }}>
-                        <RotateCcw className="w-3 h-3 mr-1" /> Reset
-                      </Button>
-                      {openSections.operacion ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-                    </div>
-                  </div>
-                </CardHeader>
-                {openSections.operacion && (
-                  <CardContent>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <NumberInput
-                        label="% Postura Base (WD80)"
-                        value={config.baseLayingRate}
-                        onChange={v => updateConfig('baseLayingRate', Math.min(98, Math.max(50, v)))}
-                        step={1}
-                        min={50}
-                        max={98}
-                        suffix="%"
-                        defaultValue={DEFAULT_CONFIG.baseLayingRate}
-                        highlightOnDefault
-                        tooltip="Porcentaje de aves que ponen huevos diariamente. Raza WD80: 80-85% tipico."
-                      />
-                      <NumberInput
-                        label="Duracion Ciclo Postura"
-                        value={config.layingCycleMonths}
-                        onChange={v => updateConfig('layingCycleMonths', Math.min(30, Math.max(12, v)))}
-                        step={1}
-                        min={12}
-                        max={30}
-                        suffix="meses"
-                        defaultValue={DEFAULT_CONFIG.layingCycleMonths}
-                        highlightOnDefault
-                        tooltip="Meses de produccion antes de vender como desecho. WD80: 18-22 meses optimo."
-                      />
-                      <NumberInput
-                        label="Aves por Lote (Default)"
-                        value={config.hensPerBatch}
-                        onChange={v => updateConfig('hensPerBatch', Math.max(100, v))}
-                        step={100}
-                        min={100}
-                        suffix="aves"
-                        defaultValue={DEFAULT_CONFIG.hensPerBatch}
-                        highlightOnDefault
-                        tooltip="Cantidad de aves por galpon. Capacidad tipica: 1,500-3,000 segun tamano del galpon."
-                      />
-                      <NumberInput
-                        label="Gastos Fijos Mensuales"
-                        value={config.fixedCostsMonthly}
-                        onChange={v => updateConfig('fixedCostsMonthly', v)}
-                        step={1000}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.fixedCostsMonthly}
-                        highlightOnDefault
-                        tooltip="Salarios, luz, agua, combustible, mantenimiento, insumos. Total mensual fijo."
-                      />
-                      <NumberInput
-                        label="Otros Gastos Adicionales"
-                        value={config.otherCosts}
-                        onChange={v => updateConfig('otherCosts', v)}
-                        step={1000}
-                        prefix="RD$"
-                        defaultValue={DEFAULT_CONFIG.otherCosts}
-                        highlightOnDefault
-                        tooltip="Gastos extraordinarios no recurrentes del mes."
-                      />
-                    </div>
-                    {/* Quick preset buttons for fixed costs */}
-                    <div className="mt-2">
-                      <Label className="text-[10px] text-stone-400">Presets gastos fijos:</Label>
-                      <div className="flex flex-wrap gap-1.5 mt-1">
-                        {[55000, 70000, 85000, 100000].map(v => (
-                          <Button key={v} variant="outline" size="sm" className="text-[10px] h-6"
-                            onClick={() => updateConfig('fixedCostsMonthly', v)}>
-                            {fmtRD(v)}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="mt-3 p-2.5 bg-sky-50 rounded-lg">
-                      <p className="text-[11px] text-sky-800">
-                        Gastos fijos: <strong>{fmtRD(config.fixedCostsMonthly)}</strong> + Otros: <strong>{fmtRD(config.otherCosts)}</strong> = <strong>{fmtRD(config.fixedCostsMonthly + config.otherCosts)}</strong>
-                        {' | '}Costo por ave/mes: <strong>{fmtRD(liveCalcs.costPerBirdMonthly)}</strong>
-                        {' | '}Ingreso por ave/mes: <strong>{fmtRD(liveCalcs.revenuePerBirdMonthly)}</strong>
-                        {' | '}Punto equilibrio: <strong>{fmtNum(liveCalcs.breakEvenEggsPerDay)} huevos/dia</strong>
-                      </p>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              {/* Section 6: GASTOS ESTRUCTURALES */}
-              <Card>
-                <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => toggleSection('estructural')}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
-                        <Hammer className="w-4 h-4 text-orange-700" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">Gastos Estructurales y Periodicos</CardTitle>
-                        <CardDescription className="text-[11px]">
-                          Reparaciones, remplazos, mejoras, bioseguridad. Se prorratean al costo mensual.
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-[10px]">
-                        {fmtRD(liveCalcs.structuralMonthlyTotal)}/mes
-                      </Badge>
-                      {openSections.estructural ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-                    </div>
-                  </div>
-                </CardHeader>
-                {openSections.estructural && (
-                  <CardContent>
-                    <div className="space-y-3">
-                      {structuralExpenses.length === 0 ? (
-                        <div className="text-center py-6 text-stone-400">
-                          <Hammer className="w-8 h-8 mx-auto mb-1 opacity-30" />
-                          <p className="text-xs">No hay gastos estructurales registrados.</p>
-                        </div>
-                      ) : (
-                        structuralExpenses.map((expense) => (
-                          <div key={expense.id} className={`flex items-center gap-3 p-3 rounded-lg border ${expense.isActive ? 'border-stone-200 bg-white' : 'border-stone-100 bg-stone-50 opacity-60'}`}>
-                            <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
-                              <div className="col-span-1 sm:col-span-2">
-                                <Input
-                                  type="text"
-                                  value={expense.description}
-                                  onChange={e => setStructuralExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, description: e.target.value } : ex))}
-                                  className="text-xs h-7"
-                                  placeholder="Descripcion del gasto..."
-                                />
+                ) : (
+                  <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+                    {savedRecords.map((record) => {
+                      const isExpanded = expandedRecord === record.id
+                      return (
+                        <div key={record.id} className="border rounded-lg overflow-hidden">
+                          <div
+                            className="p-3 cursor-pointer hover:bg-stone-50 transition-colors"
+                            onClick={() => setExpandedRecord(isExpanded ? null : record.id)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                <span className="font-semibold text-sm">{record.month}</span>
+                                <span className="text-[10px] text-stone-400">{record.date}</span>
                               </div>
-                              <div className="flex gap-2">
-                                <Input
-                                  type="number"
-                                  value={expense.amount}
-                                  onChange={e => setStructuralExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, amount: parseFloat(e.target.value) || 0 } : ex))}
-                                  className="text-xs h-7 w-28"
-                                  prefix="RD$"
-                                  placeholder="Monto"
-                                />
-                                <select
-                                  value={expense.frequency}
-                                  onChange={e => setStructuralExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, frequency: e.target.value as StructuralFrequency } : ex))}
-                                  className="text-xs h-7 rounded-md border border-input bg-background px-2 min-w-[100px]"
-                                >
-                                  {(Object.entries(FREQUENCY_LABELS) as [StructuralFrequency, string][]).map(([key, label]) => (
-                                    <option key={key} value={key}>{label}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-end gap-1 shrink-0">
-                              <span className="text-[10px] text-stone-400">
-                                ~{fmtRD(expense.amount * FREQUENCY_MULTIPLIER[expense.frequency] / 12)}/mes
-                              </span>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => setStructuralExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, isActive: !ex.isActive } : ex))}
-                                  className={`text-[10px] px-1.5 py-0.5 rounded ${expense.isActive ? 'bg-green-100 text-green-700' : 'bg-stone-100 text-stone-400'}`}
-                                >
-                                  {expense.isActive ? 'Activo' : 'Inactivo'}
-                                </button>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500"
-                                  onClick={() => setStructuralExpenses(prev => prev.filter(ex => ex.id !== expense.id))}>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-[10px]">{fmtRD(record.config.eggPrice)}/huevo</Badge>
+                                <Badge className={record.net >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                                  {fmtRD(record.net)}
+                                </Badge>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-700"
+                                  onClick={e => { e.stopPropagation(); setExpandedRecord(isExpanded ? null : record.id) }}>
+                                  <Eye className="w-3.5 h-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-red-500"
+                                  onClick={e => { e.stopPropagation(); deleteRecord(record.id) }}>
                                   <Trash2 className="w-3 h-3" />
                                 </Button>
                               </div>
                             </div>
                           </div>
-                        ))
-                      )}
-                      <Button variant="outline" size="sm" className="w-full gap-2 text-xs"
-                        onClick={() => setStructuralExpenses(prev => [...prev, {
-                          id: `se-${Date.now()}`,
-                          description: '',
-                          amount: 0,
-                          frequency: 'unico' as StructuralFrequency,
-                          dateAdded: new Date().toISOString(),
-                          isActive: true,
-                        }])}>
-                        <Plus className="w-3.5 h-3.5" /> Agregar gasto estructural
-                      </Button>
-                    </div>
-                    {/* Summary */}
-                    <div className="mt-3 p-2.5 bg-orange-50 rounded-lg">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                        <div>
-                          <span className="text-orange-600 block">Items activos</span>
-                          <span className="font-bold">{liveCalcs.activeStructural} de {liveCalcs.totalStructuralItems}</span>
+                          {isExpanded && (
+                            <div className="px-4 pb-3 border-t bg-stone-50/50 space-y-2">
+                              <div className="text-[11px] text-stone-500">
+                                <strong>Notas:</strong> {record.notes || 'Sin notas'}
+                              </div>
+                              <Table>
+                                <TableBody>
+                                  <TableRow><TableCell className="text-[11px] font-medium">Lotes activos</TableCell><TableCell className="text-[11px]">{record.batches.filter(b => b.isLaying).length} en postura de {record.batches.length}</TableCell></TableRow>
+                                  <TableRow><TableCell className="text-[11px] font-medium">Aves totales</TableCell><TableCell className="text-[11px]">{record.batches.reduce((s, b) => s + b.hens, 0)}</TableCell></TableRow>
+                                  <TableRow><TableCell className="text-[11px] font-medium">Ingreso</TableCell><TableCell className="text-[11px] text-green-700">{fmtRD(record.revenue)}</TableCell></TableRow>
+                                  <TableRow><TableCell className="text-[11px] font-medium">Gastos</TableCell><TableCell className="text-[11px] text-red-700">{fmtRD(record.expenses)}</TableCell></TableRow>
+                                  <TableRow><TableCell className="text-[11px] font-bold">Utilidad Neta</TableCell><TableCell className={`text-[11px] font-bold ${record.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmtRD(record.net)}</TableCell></TableRow>
+                                </TableBody>
+                              </Table>
+                              <div className="flex justify-end gap-2 pt-2">
+                                <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1 text-[10px] h-7">
+                                  <Printer className="w-3 h-3" /> Imprimir
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <div>
-                          <span className="text-orange-600 block">Costo prorrateado/mes</span>
-                          <span className="font-bold">{fmtRD(liveCalcs.structuralMonthlyTotal)}</span>
-                        </div>
-                        <div>
-                          <span className="text-orange-600 block">Total anual estimado</span>
-                          <span className="font-bold">{fmtRD(liveCalcs.structuralAnnualTotal)}</span>
-                        </div>
-                        <div>
-                          <span className="text-orange-600 block">% del gasto total</span>
-                          <span className="font-bold">{liveCalcs.totalExpenses > 0 ? (liveCalcs.structuralMonthlyTotal / liveCalcs.totalExpenses * 100).toFixed(1) : '0'}%</span>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-
-              {/* Bottom actions */}
-              <div className="flex flex-wrap gap-3 pt-2">
-                <Button onClick={saveRecord} className="gap-2">
-                  <Save className="w-4 h-4" /> Guardar registro del mes
-                </Button>
-                <Button variant="outline" onClick={resetAll} className="gap-2">
-                  <RotateCcw className="w-4 h-4" /> Restaurar todo por defecto
-                </Button>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* ============ TAB: LOTES ============ */}
-          <TabsContent value="batches">
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <ClipboardList className="w-4 h-4 text-violet-600" />
-                      Estado Actual de Lotes
-                    </CardTitle>
-                    <CardDescription className="text-[11px]">
-                      Configura cada galpon. La fase se calcula automaticamente al cambiar el mes del ciclo.
-                    </CardDescription>
+                      )
+                    })}
                   </div>
-                  <Button variant="outline" size="sm" onClick={addBatch} className="gap-1 text-xs">
-                    <Plus className="w-3.5 h-3.5" /> Agregar Lote
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {batches.map((batch) => {
-                    const feed = config.feedPhases[batch.phase]
-                    const monthlyFeedCost = (batch.hens * feed.consumption * 30 * feed.price) / 100000
-                    const eggsPerMonth = batch.isLaying ? Math.round(batch.hens * (batch.layingRate / 100) * 30) : 0
-                    const eggRevenue = eggsPerMonth * config.eggPrice
-                    return (
-                      <div key={batch.id} className={`border rounded-lg p-4 space-y-3 ${batch.isLaying ? 'border-green-200 bg-green-50/30' : 'border-stone-200'}`}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1.5">
-                              <Input
-                                type="text"
-                                value={batch.name}
-                                onChange={e => updateBatch(batch.id, 'name', e.target.value)}
-                                className="h-7 w-36 text-sm font-semibold border-transparent hover:border-stone-300 focus:border-stone-400 bg-transparent px-1"
-                              />
-                              <button
-                                onClick={() => updateBatch(batch.id, 'name', batch.name)}
-                                className="opacity-0 group-hover:opacity-100"
-                                title="Nombre editable"
-                              >
-                                <ClipboardCheck className="w-3 h-3 text-stone-300" />
-                              </button>
-                            </div>
-                            <Badge className={PHASE_COLORS[batch.phase]}>
-                              {feed.label} ({feed.weeks})
-                            </Badge>
-                            {batch.isLaying && (
-                              <Badge className="bg-green-100 text-green-700">
-                                En postura
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-[10px]">
-                              {batch.isLaying ? `+${fmtRD(eggRevenue - monthlyFeedCost)}/mes` : `-${fmtRD(monthlyFeedCost)}/mes`}
-                            </Badge>
-                            {batches.length > 1 && (
-                              <Button variant="ghost" size="sm" onClick={() => removeBatch(batch.id)}
-                                className="text-red-400 hover:text-red-600 hover:bg-red-50 h-7 w-7 p-0">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                          <NumberInput
-                            label="Aves"
-                            value={batch.hens}
-                            onChange={v => updateBatch(batch.id, 'hens', v)}
-                            step={50}
-                            min={0}
-                            tooltip="Cantidad de aves activas en este galpon."
-                          />
-                          <NumberInput
-                            label="Mes del Ciclo"
-                            value={batch.cycleMonth}
-                            onChange={v => updateBatch(batch.id, 'cycleMonth', v)}
-                            step={0.5}
-                            min={0}
-                            max={30}
-                            tooltip="Mes actual desde el inicio del lote. La fase se calcula automaticamente."
-                          />
-                          <NumberInput
-                            label="% Postura"
-                            value={batch.layingRate}
-                            onChange={v => updateBatch(batch.id, 'layingRate', v)}
-                            step={1}
-                            min={0}
-                            max={100}
-                            suffix="%"
-                            disabled={!batch.isLaying}
-                            tooltip="Porcentaje actual de postura. Solo editable cuando el lote esta en postura."
-                          />
-                          <div className="space-y-1.5">
-                            <Label className="text-xs text-stone-600">Fase Actual</Label>
-                            <div className="h-9 rounded-md border bg-stone-50 px-3 flex items-center text-sm text-stone-600">
-                              {feed.label}
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-xs text-stone-600">Feed Costo/Mes</Label>
-                            <div className="h-9 rounded-md border bg-red-50 px-3 flex items-center text-sm text-red-700 font-medium">
-                              {fmtRD(monthlyFeedCost)}
-                            </div>
-                          </div>
-                        </div>
-                        {/* Quick phase buttons */}
-                        <div className="flex flex-wrap gap-1">
-                          {PHASE_KEYS.map(phase => (
-                            <Button key={phase} variant={batch.phase === phase ? 'default' : 'outline'} size="sm"
-                              className="text-[10px] h-6 px-2"
-                              onClick={() => updateBatch(batch.id, 'phase', phase)}>
-                              {config.feedPhases[phase].label}
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                )}
               </CardContent>
             </Card>
-          </TabsContent>
+          </div>
+        )}
 
-          {/* ============ TAB: OPERACIONES ============ */}
-          <TabsContent value="operations">
-            <OperationsPanel batches={batches} config={config} fmtRD={fmtRD} fmtNum={fmtNum} />
-          </TabsContent>
-
-          {/* ============ TAB: DETALLE ============ */}
-          <TabsContent value="details">
-            <div className="space-y-5">
-              {/* Batch Detail Table */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-stone-600" />
-                    Detalle Financiero por Lote
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs">Lote</TableHead>
-                          <TableHead className="text-xs">Fase</TableHead>
-                          <TableHead className="text-xs text-right">Aves</TableHead>
-                          <TableHead className="text-xs text-right">% Postura</TableHead>
-                          <TableHead className="text-xs text-right">Huevos/Mes</TableHead>
-                          <TableHead className="text-xs text-right">Ing. Huevos</TableHead>
-                          <TableHead className="text-xs text-right">Gasto Feed</TableHead>
-                          <TableHead className="text-xs text-right">Balance</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {calculations.batchDetails.map((b) => (
-                          <TableRow key={b.id}>
-                            <TableCell className="font-medium text-sm">{b.name}</TableCell>
-                            <TableCell>
-                              <Badge className={`${PHASE_COLORS[b.phase as PhaseKey]} text-[10px]`}>
-                                {config.feedPhases[b.phase as PhaseKey].label}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right text-sm">{fmtNum(b.hens)}</TableCell>
-                            <TableCell className="text-right text-sm">{b.isLaying ? `${b.layingRate}%` : '-'}</TableCell>
-                            <TableCell className="text-right text-sm">{b.isLaying ? fmtNum(b.eggsPerMonth) : '-'}</TableCell>
-                            <TableCell className="text-right text-sm text-green-700 font-medium">
-                              {b.isLaying ? fmtRD(b.eggRevenue) : '-'}
-                            </TableCell>
-                            <TableCell className="text-right text-sm text-red-600">
-                              {fmtRD(b.monthlyFeedCost)}
-                            </TableCell>
-                            <TableCell className={`text-right text-sm font-bold ${b.netBalance >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                              {fmtRD(b.netBalance)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        <TableRow className="font-bold border-t-2">
-                          <TableCell colSpan={5} className="text-sm">TOTALES</TableCell>
-                          <TableCell className="text-right text-sm text-green-700">{fmtRD(calculations.totalEggRevenue)}</TableCell>
-                          <TableCell className="text-right text-sm text-red-600">{fmtRD(calculations.totalFeedCost)}</TableCell>
-                          <TableCell className={`text-right text-sm ${calculations.totalEggRevenue - calculations.totalFeedCost >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                            {fmtRD(calculations.totalEggRevenue - calculations.totalFeedCost)}
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Monthly Summary */}
-              <div className="grid md:grid-cols-2 gap-5">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Desglose de Gastos Mensual</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2.5">
-                      {[
-                        { label: 'Alimentacion', value: calculations.totalFeedCost, color: 'bg-amber-500' },
-                        { label: 'Gastos Fijos', value: config.fixedCostsMonthly, color: 'bg-stone-500' },
-                        { label: 'Otros Gastos', value: config.otherCosts, color: 'bg-violet-500' },
-                        ...(calculations.structuralMonthlyTotal > 0 ? [{ label: 'Gastos Estructurales', value: calculations.structuralMonthlyTotal, color: 'bg-orange-500' }] : []),
-                      ].map(item => {
-                        const pct = calculations.totalExpenses > 0 ? (item.value / calculations.totalExpenses) * 100 : 0
-                        return (
-                          <div key={item.label} className="space-y-1">
-                            <div className="flex justify-between text-sm">
-                              <span>{item.label}</span>
-                              <span className="font-medium">{fmtRD(item.value)} ({pct.toFixed(1)}%)</span>
-                            </div>
-                            <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
-                              <div className={`h-full ${item.color} rounded-full transition-all duration-300`}
-                                style={{ width: `${Math.min(100, pct)}%` }} />
-                            </div>
-                          </div>
-                        )
-                      })}
-                      <Separator />
-                      <div className="flex justify-between text-sm font-bold">
-                        <span>Total Gastos</span>
-                        <span className="text-red-700">{fmtRD(calculations.totalExpenses)}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Estado de Resultados del Mes</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2.5">
-                      <div className="flex justify-between text-sm">
-                        <span>Venta de Huevos</span>
-                        <span className="text-green-700 font-medium">{fmtRD(calculations.totalEggRevenue)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span>Venta Gallinas Desecho</span>
-                        <span className="text-stone-400 font-medium">No aplica este mes</span>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between text-sm font-bold">
-                        <span>Ingresos Totales</span>
-                        <span className="text-green-700">{fmtRD(calculations.totalRevenue)}</span>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between text-sm">
-                        <span>Alimentacion</span>
-                        <span className="text-red-600">{fmtRD(calculations.totalFeedCost)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span>Gastos Fijos</span>
-                        <span className="text-red-600">{fmtRD(config.fixedCostsMonthly)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span>Otros</span>
-                        <span className="text-red-600">{fmtRD(config.otherCosts)}</span>
-                      </div>
-                      {calculations.structuralMonthlyTotal > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span>Estructurales (prorrateado)</span>
-                          <span className="text-red-600">{fmtRD(calculations.structuralMonthlyTotal)}</span>
-                        </div>
-                      )}
-                      <Separator />
-                      <div className="flex justify-between text-sm">
-                        <span className="font-bold">Total Gastos</span>
-                        <span className="text-red-700 font-bold">{fmtRD(calculations.totalExpenses)}</span>
-                      </div>
-                      <Separator />
-                      <div className={`flex justify-between text-base font-bold p-3 rounded-lg ${calculations.netProfit >= 0 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-                        <span>BENEFICIO NETO</span>
-                        <span>{fmtRD(calculations.netProfit)}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Reference Alert */}
-              <Alert>
-                <Info className="h-4 w-4" />
-                <AlertDescription className="text-[11px]">
-                  <strong>Referencia rapida:</strong> Con {fmtRD(config.eggPrice)}/huevo y feed {fmtRD(config.feedPhases.postura.price)}/qq,
-                  cada lote de {fmtNum(config.hensPerBatch)} aves al {config.baseLayingRate}% genera <strong>{fmtRD(config.hensPerBatch * (config.baseLayingRate / 100) * 30 * config.eggPrice)}</strong> en huevos
-                  y consume <strong>{fmtRD(config.hensPerBatch * config.feedPhases.postura.consumption * 30 * config.feedPhases.postura.price / 100000)}</strong> en alimento.
-                  Costo por huevo: <strong>{fmtRD(calculations.costPerEgg)}</strong> vs precio venta {fmtRD(config.eggPrice)}.
-                </AlertDescription>
-              </Alert>
+        {/* ====================== MAP VIEW ====================== */}
+        {view === 'map' && (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Button variant="ghost" size="sm" onClick={goBack} className="gap-1 text-xs h-8">
+                <ChevronLeft className="w-4 h-4" /> Volver
+              </Button>
+              <h2 className="text-lg font-bold text-stone-800">Vista Granja</h2>
             </div>
-          </TabsContent>
+            <FarmMapView batches={batches} config={config} calculations={liveCalcs} />
+          </div>
+        )}
 
-          {/* ============ TAB: KPIs ============ */}
-          <TabsContent value="kpis">
-            <div className="space-y-5">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
-                    Indicadores Clave de Rendimiento
-                  </CardTitle>
-                  <CardDescription className="text-[11px]">Todos los KPIs se recalculan en tiempo real al cambiar cualquier variable.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {/* KPI Cards */}
-                    {[
-                      { label: 'Ingreso por Lote (Postura)', value: fmtRD(config.hensPerBatch * (config.baseLayingRate / 100) * 30 * config.eggPrice), sub: `${fmtNum(config.hensPerBatch)} aves x ${config.baseLayingRate}%`, color: 'text-green-700', icon: <Egg className="w-4 h-4" /> },
-                      { label: 'Gasto Feed por Lote (Postura)', value: fmtRD(config.hensPerBatch * config.feedPhases.postura.consumption * 30 * config.feedPhases.postura.price / 100000), sub: `${config.feedPhases.postura.consumption}g x ${fmtRD(config.feedPhases.postura.price)}/qq`, color: 'text-red-600', icon: <Wheat className="w-4 h-4" /> },
-                      { label: 'Costo por Huevo Producido', value: fmtRD(calculations.costPerEgg), sub: `Venta: ${fmtRD(config.eggPrice)} | Ganancia: ${fmtRD(config.eggPrice - calculations.costPerEgg)}`, color: calculations.costPerEgg < config.eggPrice ? 'text-green-700' : 'text-red-600', icon: <Target className="w-4 h-4" /> },
-                      { label: 'Feed / Gasto Total', value: fmtPct(calculations.feedPercentage), sub: fmtRD(calculations.totalFeedCost) + ' de ' + fmtRD(calculations.totalExpenses), color: 'text-amber-700', icon: <PieChart className="w-4 h-4" /> },
-                      { label: 'RD$ Ingreso por RD$ Feed', value: 'x' + calculations.revenuePerFeedRD.toFixed(2), sub: calculations.revenuePerFeedRD >= 2 ? 'Eficiencia buena' : 'Revisar precio feed', color: calculations.revenuePerFeedRD >= 2 ? 'text-green-700' : 'text-red-600', icon: <TrendingUp className="w-4 h-4" /> },
-                      { label: 'Punto Equilibrio (huevos/dia)', value: fmtNum(calculations.breakEvenEggsPerDay), sub: `Produccion actual: ${fmtNum(calculations.totalEggs / 30)}/dia`, color: calculations.totalEggs / 30 >= calculations.breakEvenEggsPerDay ? 'text-green-700' : 'text-red-600', icon: <Activity className="w-4 h-4" /> },
-                      { label: 'Inversion Nuevo Lote', value: fmtRD(calculations.newBatchInvestmentWithMortality), sub: `${fmtNum(config.hensPerBatch)} aves x ${fmtRD(config.chickPrice + config.vaccinesCostPerBird + config.equipmentCostPerBird)}/ave`, color: 'text-violet-700', icon: <Box className="w-4 h-4" /> },
-                      { label: 'Venta Desecho Total (al final)', value: fmtRD(calculations.totalHenSaleRevenue), sub: `${fmtNum(calculations.totalHens)} aves x ${fmtRD(config.henSalePrice)}`, color: 'text-stone-700', icon: <DollarSign className="w-4 h-4" /> },
-                      { label: 'Infraestructura Total', value: fmtRD(calculations.infraCost), sub: `${batches.length} galpones`, color: 'text-stone-700', icon: <Building2 className="w-4 h-4" /> },
-                    ].map(kpi => (
-                      <div key={kpi.label} className="border rounded-lg p-3 space-y-1">
-                        <div className="flex items-center gap-1.5 text-stone-500">
-                          {kpi.icon}
-                          <span className="text-[10px] font-medium">{kpi.label}</span>
-                        </div>
-                        <p className={`text-lg font-bold ${kpi.color}`}>{kpi.value}</p>
-                        <p className="text-[10px] text-stone-400">{kpi.sub}</p>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Efficiency Gauges */}
-              <div className="grid md:grid-cols-2 gap-5">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Eficiencia de Conversion</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span>Margen de Ganancia</span>
-                        <span className={`font-bold ${calculations.profitMargin >= 20 ? 'text-green-700' : calculations.profitMargin >= 0 ? 'text-amber-600' : 'text-red-600'}`}>
-                          {fmtPct(calculations.profitMargin)}
-                        </span>
-                      </div>
-                      <div className="h-3 bg-stone-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-300 ${calculations.profitMargin >= 20 ? 'bg-green-500' : calculations.profitMargin >= 0 ? 'bg-amber-500' : 'bg-red-500'}`}
-                          style={{ width: `${Math.min(100, Math.max(0, calculations.profitMargin))}%` }} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span>Alimento como % del Gasto</span>
-                        <span className="font-bold text-amber-700">{fmtPct(calculations.feedPercentage)}</span>
-                      </div>
-                      <div className="h-3 bg-stone-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-amber-500 rounded-full transition-all duration-300"
-                          style={{ width: `${Math.min(100, calculations.feedPercentage)}%` }} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span>Ratio Ingreso/Feed</span>
-                        <span className={`font-bold ${calculations.revenuePerFeedRD >= 2.5 ? 'text-green-700' : 'text-amber-600'}`}>
-                          x{calculations.revenuePerFeedRD.toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="h-3 bg-stone-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-300 ${calculations.revenuePerFeedRD >= 2.5 ? 'bg-green-500' : 'bg-amber-500'}`}
-                          style={{ width: `${Math.min(100, (calculations.revenuePerFeedRD / 4) * 100)}%` }} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Analisis de Costos por Ave</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2.5">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-stone-600">Inversion inicial/ave</span>
-                        <span className="font-medium">{fmtRD(config.chickPrice + config.vaccinesCostPerBird + config.equipmentCostPerBird)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-stone-600">Gasto mensual/ave</span>
-                        <span className="font-medium text-red-600">{fmtRD(calculations.costPerBirdMonthly)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-stone-600">Ingreso mensual/ave</span>
-                        <span className="font-medium text-green-700">{fmtRD(calculations.revenuePerBirdMonthly)}</span>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between text-sm font-bold">
-                        <span>Ganancia neta/ave/mes</span>
-                        <span className={calculations.revenuePerBirdMonthly - calculations.costPerBirdMonthly >= 0 ? 'text-green-700' : 'text-red-600'}>
-                          {fmtRD(calculations.revenuePerBirdMonthly - calculations.costPerBirdMonthly)}
-                        </span>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between text-sm">
-                        <span className="text-stone-600">Recupero inversion en</span>
-                        <span className="font-bold">
-                          {calculations.revenuePerBirdMonthly - calculations.costPerBirdMonthly > 0
-                            ? `${Math.ceil((config.chickPrice + config.vaccinesCostPerBird + config.equipmentCostPerBird) / (calculations.revenuePerBirdMonthly - calculations.costPerBirdMonthly))} meses`
-                            : 'N/A'
-                          }
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-stone-600">Ingreso total ciclo ({config.layingCycleMonths}m)</span>
-                        <span className="font-bold text-green-700">
-                          {fmtRD((calculations.revenuePerBirdMonthly - calculations.costPerBirdMonthly) * config.layingCycleMonths)}/ave
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+        {/* ====================== REMINDERS VIEW ====================== */}
+        {view === 'reminders' && (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Button variant="ghost" size="sm" onClick={goBack} className="gap-1 text-xs h-8">
+                <ChevronLeft className="w-4 h-4" /> Volver
+              </Button>
+              <h2 className="text-lg font-bold text-stone-800">Alertas</h2>
             </div>
-          </TabsContent>
-
-          {/* ============ TAB: REPORTES ============ */}
-          <TabsContent value="reports">
-            <ReportsPanel
-              batches={batches}
-              config={config}
-              calculations={calculations}
-              structuralExpenses={structuralExpenses}
-              farmName="Granja Nidal"
-            />
-          </TabsContent>
-
-          {/* ============ TAB: RECORDATORIOS / ALERTAS ============ */}
-          <TabsContent value="reminders">
             <RemindersPanel
               batches={batches}
               config={config}
               fmtRD={fmtRD}
               fmtNum={fmtNum}
             />
-          </TabsContent>
-
-          {/* ============ TAB: VISTA GRANJA (RPG MAP) ============ */}
-          <TabsContent value="map">
-            <FarmMapView
-              batches={batches}
-              config={config}
-              calculations={calculations}
-            />
-          </TabsContent>
-
-          {/* ============ TAB: HISTORIAL ============ */}
-          <TabsContent value="history">
-            <div className="space-y-5">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Notas del Mes</CardTitle>
-                  <CardDescription className="text-[11px]">Observaciones o comentarios sobre el mes actual</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <textarea
-                    className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    placeholder="Ej: Lote 2 con mortalidad elevada, cambio de proveedor de alimento, precio del huevo subio..."
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-stone-600" />
-                        Registros Guardados
-                      </CardTitle>
-                      <CardDescription className="text-[11px]">Historial mensual ({savedRecords.length} registros)</CardDescription>
-                    </div>
-                    {savedRecords.length > 0 && (
-                      <Button variant="outline" size="sm" className="text-[10px] h-7 text-red-500"
-                        onClick={() => { if (confirm('Borrar todos los registros?')) setSavedRecords([]) }}>
-                        <Trash2 className="w-3 h-3 mr-1" /> Borrar todo
-                      </Button>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {savedRecords.length === 0 ? (
-                    <div className="text-center py-10 text-stone-400">
-                      <FileText className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                      <p className="text-sm">No hay registros guardados aun.</p>
-                      <p className="text-xs mt-1">Configura los valores y haz clic en &quot;Guardar registro del mes&quot;</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-                      {savedRecords.map((record) => {
-                        const isExpanded = expandedRecord === record.id
-                        return (
-                          <div key={record.id} className="border rounded-lg overflow-hidden">
-                            {/* Record header row (always visible, clickable) */}
-                            <div
-                              className="p-3 cursor-pointer hover:bg-stone-50 transition-colors"
-                              onClick={() => setExpandedRecord(isExpanded ? null : record.id)}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                  <span className="font-semibold text-sm">{record.month}</span>
-                                  <span className="text-[10px] text-stone-400">{record.date}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="text-[10px]">
-                                    {fmtRD(record.config.eggPrice)}/huevo
-                                  </Badge>
-                                  <Badge className={record.net >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                                    {fmtRD(record.net)}
-                                  </Badge>
-                                  <Button
-                                    variant="ghost" size="sm"
-                                    className="h-6 w-6 p-0 text-stone-400 hover:text-stone-700 print:hidden"
-                                    onClick={e => { e.stopPropagation(); setExpandedRecord(isExpanded ? null : record.id) }}
-                                    title="Ver detalle"
-                                  >
-                                    <Eye className="w-3.5 h-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost" size="sm"
-                                    className="h-6 w-6 p-0 text-stone-400 hover:text-green-700 print:hidden"
-                                    onClick={e => { e.stopPropagation(); window.print() }}
-                                    title="Imprimir"
-                                  >
-                                    <Printer className="w-3.5 h-3.5" />
-                                  </Button>
-                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500 print:hidden"
-                                    onClick={e => { e.stopPropagation(); deleteRecord(record.id) }}>
-                                    <Trash2 className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                              </div>
-                              {/* Quick summary row */}
-                              <div className="grid grid-cols-4 gap-2 text-[11px] mt-2">
-                                <div>
-                                  <span className="text-stone-400 block">Ingresos</span>
-                                  <span className="text-green-700 font-medium">{fmtRD(record.revenue)}</span>
-                                </div>
-                                <div>
-                                  <span className="text-stone-400 block">Gastos</span>
-                                  <span className="text-red-600 font-medium">{fmtRD(record.expenses)}</span>
-                                </div>
-                                <div>
-                                  <span className="text-stone-400 block">Huevo</span>
-                                  <span className="font-medium">{fmtRD(record.config.eggPrice)}</span>
-                                </div>
-                                <div>
-                                  <span className="text-stone-400 block">Feed Postura</span>
-                                  <span className="font-medium">{fmtRD(record.config.feedPhases.postura.price)}/qq</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Expanded detail (view-only) */}
-                            {isExpanded && (
-                              <div className="border-t bg-stone-50/70 p-4 space-y-3 print:p-3">
-                                <div className="flex items-center justify-between print:hidden">
-                                  <p className="text-xs font-bold text-stone-600 flex items-center gap-1"><Eye className="w-3 h-3" /> Detalle del Registro (solo lectura)</p>
-                                  <Button variant="outline" size="sm" className="gap-1 text-[10px] h-7 print:hidden"
-                                    onClick={() => window.print()}>
-                                    <Printer className="w-3 h-3" /> Imprimir
-                                  </Button>
-                                </div>
-
-                                {/* Print header */}
-                                <div className="hidden print:block mb-3 pb-2 border-b-2 border-black">
-                                  <div className="flex items-center gap-2">
-                                    <img src="/logo.jpg" alt="Granja Nidal" className="w-8 h-8 rounded object-cover" />
-                                    <div>
-                                      <p className="font-bold text-sm">Granja Nidal | Gestor de Granja</p>
-                                      <p className="text-[10px]">Registro del {record.month} — {record.date}</p>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Config snapshot */}
-                                <div>
-                                  <p className="text-[11px] font-bold text-stone-600 mb-1.5 uppercase tracking-wide">Configuracion al momento del registro</p>
-                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                    <div className="bg-white border rounded p-2 text-[11px]">
-                                      <span className="text-stone-400 block">Precio Huevo</span>
-                                      <span className="font-semibold">{fmtRD(record.config.eggPrice)}</span>
-                                    </div>
-                                    <div className="bg-white border rounded p-2 text-[11px]">
-                                      <span className="text-stone-400 block">Venta Gallina</span>
-                                      <span className="font-semibold">{fmtRD(record.config.henSalePrice)}</span>
-                                    </div>
-                                    <div className="bg-white border rounded p-2 text-[11px]">
-                                      <span className="text-stone-400 block">Costo Pollita</span>
-                                      <span className="font-semibold">{fmtRD(record.config.chickPrice)}</span>
-                                    </div>
-                                    <div className="bg-white border rounded p-2 text-[11px]">
-                                      <span className="text-stone-400 block">% Postura Base</span>
-                                      <span className="font-semibold">{record.config.baseLayingRate}%</span>
-                                    </div>
-                                    <div className="bg-white border rounded p-2 text-[11px]">
-                                      <span className="text-stone-400 block">Aves/Lote</span>
-                                      <span className="font-semibold">{fmtNum(record.config.hensPerBatch)}</span>
-                                    </div>
-                                    <div className="bg-white border rounded p-2 text-[11px]">
-                                      <span className="text-stone-400 block">Gastos Fijos</span>
-                                      <span className="font-semibold">{fmtRD(record.config.fixedCostsMonthly)}</span>
-                                    </div>
-                                    <div className="bg-white border rounded p-2 text-[11px]">
-                                      <span className="text-stone-400 block">Vacunas/Ave</span>
-                                      <span className="font-semibold">{fmtRD(record.config.vaccinesCostPerBird)}</span>
-                                    </div>
-                                    <div className="bg-white border rounded p-2 text-[11px]">
-                                      <span className="text-stone-400 block">Mortalidad</span>
-                                      <span className="font-semibold">{record.config.mortalityRate}%</span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Feed prices snapshot */}
-                                <div>
-                                  <p className="text-[11px] font-bold text-stone-600 mb-1.5 uppercase tracking-wide">Precios de Alimento (RD$/qq)</p>
-                                  <div className="grid grid-cols-5 gap-2">
-                                    {(['pre_inicio', 'inicio', 'crecimiento', 'pre_postura', 'postura'] as const).map(pk => (
-                                      <div key={pk} className="bg-white border rounded p-2 text-[10px] text-center">
-                                        <span className="text-stone-400 block">{record.config.feedPhases[pk]?.label || pk}</span>
-                                        <span className="font-semibold">{fmtRD(record.config.feedPhases[pk]?.price || 0)}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                {/* Batches snapshot */}
-                                <div>
-                                  <p className="text-[11px] font-bold text-stone-600 mb-1.5 uppercase tracking-wide">Estado de Lotes</p>
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-[11px] border-collapse">
-                                      <thead>
-                                        <tr className="border-b border-stone-200 bg-stone-100">
-                                          <th className="text-left py-1 px-1.5">Lote</th>
-                                          <th className="text-right py-1 px-1.5">Aves</th>
-                                          <th className="text-center py-1 px-1.5">Fase</th>
-                                          <th className="text-center py-1 px-1.5">Mes Ciclo</th>
-                                          <th className="text-center py-1 px-1.5">% Postura</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {record.batches.map(b => (
-                                          <tr key={b.id} className="border-b border-stone-100">
-                                            <td className="py-1 px-1.5 font-medium">{b.name}</td>
-                                            <td className="text-right">{fmtNum(b.hens)}</td>
-                                            <td className="text-center">{b.phase.replace('_', '-')}</td>
-                                            <td className="text-center">{b.cycleMonth}</td>
-                                            <td className="text-center">{b.isLaying ? b.layingRate + '%' : 'N/A'}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
-
-                                {/* Financial summary */}
-                                <div>
-                                  <p className="text-[11px] font-bold text-stone-600 mb-1.5 uppercase tracking-wide">Resumen Financiero</p>
-                                  <div className="grid grid-cols-3 gap-2">
-                                    <div className="bg-green-50 border border-green-200 rounded p-2.5 text-center">
-                                      <p className="text-[10px] text-stone-500">Ingresos</p>
-                                      <p className="text-sm font-bold text-green-700">{fmtRD(record.revenue)}</p>
-                                    </div>
-                                    <div className="bg-red-50 border border-red-200 rounded p-2.5 text-center">
-                                      <p className="text-[10px] text-stone-500">Gastos</p>
-                                      <p className="text-sm font-bold text-red-700">{fmtRD(record.expenses)}</p>
-                                    </div>
-                                    <div className={`${record.net >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} border rounded p-2.5 text-center`}>
-                                      <p className="text-[10px] text-stone-500">Utilidad Neta</p>
-                                      <p className={`text-sm font-bold ${record.net >= 0 ? 'text-green-800' : 'text-red-700'}`}>{fmtRD(record.net)}</p>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {record.notes && (
-                                  <div className="bg-white border rounded p-2.5">
-                                    <p className="text-[10px] text-stone-400 uppercase mb-1">Notas del registro</p>
-                                    <p className="text-[11px] text-stone-600">{record.notes}</p>
-                                  </div>
-                                )}
-
-                                <p className="text-[10px] text-stone-400 print:hidden">
-                                  Registro guardado como archivo historico. Solo lectura — no editable.
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-        </Tabs>
+          </div>
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-stone-200 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-1.5">
-            <p className="text-[10px] text-stone-400">
-              Granja Nidal | Gestor de Granja
-            </p>
-            <p className="text-[10px] text-stone-400">
-              Datos guardados localmente en tu navegador
-            </p>
-          </div>
-        </div>
-      </footer>
+      {/* Config Sheet */}
+      <ConfigSheet
+        open={configOpen}
+        onOpenChange={setConfigOpen}
+        config={config}
+        setConfig={setConfig}
+        batches={batches}
+        structuralExpenses={structuralExpenses}
+        setStructuralExpenses={setStructuralExpenses}
+        liveCalcs={liveCalcs}
+        notes={notes}
+        setNotes={setNotes}
+        saveRecord={saveRecord}
+        resetAll={resetAll}
+      />
     </div>
   )
 }

@@ -192,3 +192,23 @@ Stage Summary:
 - z-index 9999 asegura que siempre esta por encima de todo
 - Mapa envuelto en div relativo para permitir que el tooltip se posicione correctamente
 - Contenido del tooltip sin cambios: nombre, fase, aves, postura%, huevos/dia, ingreso/feed/neto, barra ciclo
+
+---
+Task ID: 4
+Agent: main
+Task: Restructure app from tab-based to lot-centric architecture
+
+Work Log:
+- Found that restructure was already partially done in a previous session
+- Fixed syntax error in page.tsx: missing closing brace for else-if block in config initialization
+- Fixed import error in lot-detail.tsx: `@/components/button` → `@/components/ui/button`
+- Build passed successfully
+
+Stage Summary:
+- App restructured from 9-tab layout to lot-centric architecture
+- New files: lot-card.tsx (132 lines), lot-detail.tsx (481 lines), config-sheet.tsx (521 lines), farm-data.ts (397 lines shared lib)
+- page.tsx reduced to 719 lines (state management + routing)
+- Dashboard view: KPI cards + lot cards grid + quick access (Reportes, Historial, Vista Granja)
+- Lot detail view: breadcrumb + lot header + sub-tabs (General, Producción, Feed, Salud, Finanzas, Alertas)
+- Config accessible from gear icon as slide-out sheet
+- All state, localStorage keys, calculations, auto-reminders preserved

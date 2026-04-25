@@ -77,6 +77,7 @@ interface OperationsProps {
   }
   fmtRD: (v: number) => string
   fmtNum: (v: number) => string
+  batchId?: string | null  // Optional filter to show data for a specific batch only
 }
 
 // ================================================================
@@ -107,7 +108,7 @@ function getDefaultVaccineSchedule(batchId: string, shedId: string, cycleNumber:
   ]
 }
 
-export default function OperationsPanel({ batches, config, fmtRD, fmtNum }: OperationsProps) {
+export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchId }: OperationsProps) {
   const today = new Date().toISOString().split('T')[0]
 
   // --- State ---
