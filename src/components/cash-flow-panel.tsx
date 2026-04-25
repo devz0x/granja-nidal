@@ -71,6 +71,7 @@ interface CashFlowEntry {
 // ================================================================
 const STORAGE_KEY = 'granja-wd80-cash-flow'
 const BALANCE_KEY = 'granja-wd80-cash-flow-balances'
+const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
 
 const CATEGORIES: Record<CashFlowCategory, {
   label: string
@@ -165,25 +166,10 @@ interface CashFlowPanelProps {
 
 export default function CashFlowPanel({ goBack, config, calculations }: CashFlowPanelProps) {
   // ---- State ----
-  const [entries, setEntries] = useState<CashFlowEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        return saved ? JSON.parse(saved) : []
-      } catch { /* ignore */ }
-    }
-    return []
-  })
-
-  const [openingBalances, setOpeningBalances] = useState<Record<string, number>>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(BALANCE_KEY)
-        return saved ? JSON.parse(saved) : {}
-      } catch { /* ignore */ }
-    }
-    return {}
-  })
+  const [entries, setEntries] = useState<CashFlowEntry[]>([])
+  const [openingBalances, setOpeningBalances] = useState<Record<string, number>>({})
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
 
   const [selectedMonth, setSelectedMonth] = useState(() => getMonthKey(new Date()))
   const [showAddDialog, setShowAddDialog] = useState(false)
@@ -202,7 +188,69 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
   const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0])
   const [formReference, setFormReference] = useState('')
 
-  // ---- Persistence ----
+  // ---- Fetch from Supabase on mount ----
+  useEffect(() => {
+    if (!FARM_ID) {
+      // Fallback to localStorage if no farm ID
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY)
+        if (saved) setEntries(JSON.parse(saved))
+        const savedBalances = localStorage.getItem(BALANCE_KEY)
+        if (savedBalances) setOpeningBalances(JSON.parse(savedBalances))
+      } catch { /* ignore */ }
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    fetch(`/api/cash-flow?farm_id=${FARM_ID}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          // Map Supabase entries to local format
+          const mapped = (data.entries || []).map((e: Record<string, unknown>) => ({
+            id: e.id as string,
+            date: typeof e.date === 'string' ? e.date.substring(0, 10) : String(e.date),
+            category: e.category as CashFlowCategory,
+            description: (e.description || '') as string,
+            amount: Number(e.amount),
+            type: e.type as EntryType,
+            reference: (e.reference || '') as string,
+            createdAt: (e.createdAt || e.created_at || '') as string,
+          }))
+          setEntries(mapped)
+
+          // Load balances from Supabase
+          if (data.balances) {
+            setOpeningBalances(data.balances as Record<string, number>)
+          }
+
+          // Also update localStorage as cache
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped))
+          localStorage.setItem(BALANCE_KEY, JSON.stringify(data.balances || {}))
+        } else {
+          // Fallback to localStorage
+          try {
+            const saved = localStorage.getItem(STORAGE_KEY)
+            if (saved) setEntries(JSON.parse(saved))
+            const savedBalances = localStorage.getItem(BALANCE_KEY)
+            if (savedBalances) setOpeningBalances(JSON.parse(savedBalances))
+          } catch { /* ignore */ }
+        }
+      })
+      .catch(() => {
+        // On error, fallback to localStorage
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY)
+          if (saved) setEntries(JSON.parse(saved))
+          const savedBalances = localStorage.getItem(BALANCE_KEY)
+          if (savedBalances) setOpeningBalances(JSON.parse(savedBalances))
+        } catch { /* ignore */ }
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  // ---- Local persistence (cache) ----
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)) }, [entries])
   useEffect(() => { localStorage.setItem(BALANCE_KEY, JSON.stringify(openingBalances)) }, [openingBalances])
 
@@ -218,7 +266,6 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
 
   const handleTypeChange = useCallback((type: EntryType) => {
     setFormType(type)
-    // Switch to a default category for the type
     if (type === 'inflow') setFormCategory('venta_huevos')
     else setFormCategory('alimento')
   }, [])
@@ -227,8 +274,9 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
     const amount = parseFloat(formAmount)
     if (!amount || amount <= 0 || !formDescription.trim()) return
 
+    const entryId = generateId()
     const entry: CashFlowEntry = {
-      id: generateId(),
+      id: entryId,
       date: formDate,
       category: formCategory,
       description: formDescription.trim(),
@@ -238,19 +286,81 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
       createdAt: new Date().toISOString(),
     }
 
+    // Optimistic update
     setEntries(prev => [entry, ...prev])
     setShowAddDialog(false)
     resetForm()
+
+    // Push to Supabase
+    if (FARM_ID) {
+      setSyncing(true)
+      fetch(`/api/cash-flow?farm_id=${FARM_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entry_key: entryId,
+          date: entry.date,
+          category: entry.category,
+          description: entry.description,
+          amount: entry.amount,
+          type: entry.type,
+          reference: entry.reference,
+        }),
+      })
+        .then(() => {})
+        .catch(() => {})
+        .finally(() => setSyncing(false))
+    }
   }, [formAmount, formCategory, formDate, formDescription, formType, formReference, resetForm])
 
   const handleDeleteEntry = useCallback((id: string) => {
+    // Optimistic update
     setEntries(prev => prev.filter(e => e.id !== id))
+
+    // Delete from Supabase
+    if (FARM_ID) {
+      setSyncing(true)
+      fetch(`/api/cash-flow/${encodeURIComponent(id)}`, { method: 'DELETE' })
+        .then(() => {})
+        .catch(() => {})
+        .finally(() => setSyncing(false))
+    }
   }, [])
 
   const handleSaveBalance = useCallback(() => {
-    setOpeningBalances(prev => ({ ...prev, [selectedMonth]: Math.round(editBalanceValue * 100) / 100 }))
+    const newBalances = { ...openingBalances, [selectedMonth]: Math.round(editBalanceValue * 100) / 100 }
+    setOpeningBalances(newBalances)
     setShowEditBalance(false)
-  }, [selectedMonth, editBalanceValue])
+
+    // Push to Supabase
+    if (FARM_ID) {
+      setSyncing(true)
+      fetch(`/api/cash-flow?farm_id=${FARM_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ balances: newBalances }),
+      })
+        .then(() => {})
+        .catch(() => {})
+        .finally(() => setSyncing(false))
+    }
+  }, [selectedMonth, editBalanceValue, openingBalances])
+
+  const handleDeleteAll = useCallback(() => {
+    setEntries([])
+    setOpeningBalances({})
+
+    if (FARM_ID) {
+      setSyncing(true)
+      fetch(`/api/cash-flow?farm_id=${FARM_ID}`, { method: 'DELETE' })
+        .then(() => {
+          localStorage.removeItem(STORAGE_KEY)
+          localStorage.removeItem(BALANCE_KEY)
+        })
+        .catch(() => {})
+        .finally(() => setSyncing(false))
+    }
+  }, [])
 
   // ---- Computed Values ----
   const monthEntries = useMemo(() => {
@@ -280,7 +390,8 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
 
     for (const entry of monthEntries) {
       const cat = CATEGORIES[entry.category]
-      const key = `${entry.category}-${entry.type}`
+      if (!cat) continue
+      const key = `${entry.category}|${entry.type}`
       if (!categoryTotals[key]) categoryTotals[key] = { total: 0, count: 0 }
       categoryTotals[key].total += entry.amount
       categoryTotals[key].count++
@@ -290,10 +401,12 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
     }
 
     for (const [key, data] of Object.entries(categoryTotals)) {
-      const [catStr, typeStr] = key.split('-')
-      const cat = catStr as CashFlowCategory
-      const catInfo = CATEGORIES[cat]
-      const item = { category: cat, label: catInfo.label, total: Math.round(data.total * 100) / 100, count: data.count }
+      const pipeIdx = key.indexOf('|')
+      const catStr = key.substring(0, pipeIdx) as CashFlowCategory
+      const typeStr = key.substring(pipeIdx + 1)
+      const catInfo = CATEGORIES[catStr]
+      if (!catInfo) continue
+      const item = { category: catStr, label: catInfo.label, total: Math.round(data.total * 100) / 100, count: data.count }
       if (typeStr === 'inflow') result[catInfo.activity].inflows.push(item)
       else result[catInfo.activity].outflows.push(item)
     }
@@ -348,7 +461,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
   // ---- Quick Auto-fill Suggestion ----
   const [showAutoFillHint, setShowAutoFillHint] = useState(false)
   const handleAutoFillFromConfig = useCallback(() => {
-    if (monthEntries.length > 0) return // Don't auto-fill if entries already exist
+    if (monthEntries.length > 0) return
     const today = new Date().toISOString().split('T')[0]
     const newEntries: CashFlowEntry[] = [
       {
@@ -378,11 +491,39 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
     ]
     setEntries(prev => [...newEntries, ...prev])
     setShowAutoFillHint(false)
+
+    // Push to Supabase
+    if (FARM_ID) {
+      fetch(`/api/cash-flow?farm_id=${FARM_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newEntries.map(e => ({
+          entry_key: e.id,
+          date: e.date,
+          category: e.category,
+          description: e.description,
+          amount: e.amount,
+          type: e.type,
+          reference: e.reference,
+        }))),
+      }).catch(() => {})
+    }
   }, [monthEntries.length, calculations, config])
 
   // ================================================================
   // RENDER
   // ================================================================
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center text-stone-400">
+          <Banknote className="w-10 h-10 mx-auto mb-2 opacity-30 animate-pulse" />
+          <p className="text-sm">Cargando flujo de caja...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -394,6 +535,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
           <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2">
             <Banknote className="w-5 h-5 text-green-600" />
             Estado de Flujo de Caja
+            {syncing && <span className="text-[10px] text-amber-500 font-normal">sincronizando...</span>}
           </h2>
         </div>
         <div className="flex items-center gap-2">
@@ -645,7 +787,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
             </div>
             {entries.length > 0 && (
               <Button variant="outline" size="sm" className="text-[10px] h-7 text-red-500 print:hidden"
-                onClick={() => { if (confirm('Eliminar TODAS las transacciones de flujo de caja?')) { setEntries([]); setOpeningBalances({}) } }}>
+                onClick={() => { if (confirm('Eliminar TODAS las transacciones de flujo de caja?')) handleDeleteAll() }}>
                 <Trash2 className="w-3 h-3 mr-1" /> Borrar todo
               </Button>
             )}
@@ -686,8 +828,8 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
                         </Badge>
                       </TableCell>
                       <TableCell className="text-[11px]">
-                        <span className="mr-1">{CATEGORIES[entry.category].icon}</span>
-                        {CATEGORIES[entry.category].label}
+                        <span className="mr-1">{CATEGORIES[entry.category]?.icon || ''}</span>
+                        {CATEGORIES[entry.category]?.label || entry.category}
                       </TableCell>
                       <TableCell className="text-[11px] max-w-[200px] truncate">{entry.description}</TableCell>
                       <TableCell className={`text-[11px] text-right font-medium ${entry.type === 'inflow' ? 'text-green-700' : 'text-red-600'}`}>
@@ -838,28 +980,26 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
               />
             </div>
             <p className="text-[10px] text-stone-500">
-              Este es el efectivo disponible al inicio del periodo. El saldo final de este mes se usara como saldo inicial del siguiente.
+              Este es el efectivo disponible al inicio del periodo. El saldo final de este mes se usara como saldo inicial del proximo.
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditBalance(false)} className="text-xs">Cancelar</Button>
-            <Button onClick={handleSaveBalance} className="text-xs">Guardar</Button>
+            <Button onClick={handleSaveBalance} className="text-xs bg-stone-900 hover:bg-stone-800 text-white">Guardar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Footnote */}
-      <div className="p-2 bg-stone-50 rounded text-[10px] text-stone-500 print:text-[9px] print:p-1">
-        <strong>Nota:</strong> Este Estado de Flujo de Caja muestra los movimientos reales de efectivo categorizados por actividad.
-        Las categorias estan adaptadas a la operacion de una granja avicola. Verificar con comprobantes fiscales y registros bancarios.
-        El saldo inicial debe configurarse manualmente el primer mes. Los saldos finales se sugieren automaticamente como saldo inicial del mes siguiente.
-      </div>
+      <p className="text-[9px] text-stone-400 text-center print:hidden">
+        Estado de Flujo de Caja — Granja Nidal. Los datos se sincronizan automaticamente entre usuarios.
+      </p>
     </div>
   )
 }
 
 // ================================================================
-// SUB-COMPONENT: Statement Activity Row (Collapsible)
+// STATEMENT ACTIVITY ROW SUBCOMPONENT
 // ================================================================
 function StatementActivityRow({
   activity,
@@ -873,63 +1013,45 @@ function StatementActivityRow({
   onToggle: () => void
 }) {
   const meta = ACTIVITY_META[activity]
-  const hasEntries = data.inflows.length > 0 || data.outflows.length > 0
+  const allItems = [
+    ...data.inflows.map(i => ({ ...i, type: 'inflow' as const })),
+    ...data.outflows.map(o => ({ ...o, type: 'outflow' as const })),
+  ]
 
   return (
     <>
-      {/* Activity Header */}
-      <tr className={`${meta.bgColor} print:bg-white cursor-pointer print:cursor-default`}
-        onClick={onToggle}>
-        <td className="py-2 px-1 print:py-1">
+      <tr
+        className={`${meta.bgColor} cursor-pointer hover:brightness-95 transition-all`}
+        onClick={onToggle}
+      >
+        <td className="py-2 px-2">
           <div className="flex items-center gap-2">
-            {!hasEntries && <span className="w-3.5" />}
-            {hasEntries && (
-              isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-stone-400" /> : <ChevronDown className="w-3.5 h-3.5 text-stone-400" />
-            )}
-            <span className={`font-bold text-xs print:text-xs ${meta.color} print:font-bold print:text-black`}>
-              {meta.label.toUpperCase()}
-            </span>
+            {isExpanded ? <ChevronUp className="w-3 h-3 text-stone-400" /> : <ChevronDown className="w-3 h-3 text-stone-400" />}
+            <span className="font-semibold text-xs">{meta.label}</span>
           </div>
         </td>
-        <td className={`text-right font-bold text-xs ${data.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-          {fmtRD(data.netFlow)}
+        <td className={`text-right font-medium text-xs ${data.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+          {data.netFlow >= 0 ? '+' : ''}{fmtRD(data.netFlow)}
         </td>
       </tr>
-
-      {/* Expanded Detail */}
-      {isExpanded && hasEntries && (
-        <>
-          {/* Inflows */}
-          {data.inflows.map(item => (
-            <tr key={`in-${item.category}`} className="border-b border-stone-50 print:border-b-stone-200">
-              <td className="py-1 pl-8 text-[11px] print:py-0.5 text-green-700">
-                + {item.label} <span className="text-stone-400">({item.count})</span>
-              </td>
-              <td className="text-right text-[11px] text-green-700">{fmtRD(item.total)}</td>
-            </tr>
-          ))}
-          {/* Outflows */}
-          {data.outflows.map(item => (
-            <tr key={`out-${item.category}`} className="border-b border-stone-50 print:border-b-stone-200">
-              <td className="py-1 pl-8 text-[11px] print:py-0.5 text-red-600">
-                - {item.label} <span className="text-stone-400">({item.count})</span>
-              </td>
-              <td className="text-right text-[11px] text-red-600">({fmtRD(item.total)})</td>
-            </tr>
-          ))}
-          {/* Subtotal */}
-          <tr className="border-b-2 border-stone-200 print:border-b-stone-300">
-            <td className="py-1 pl-4 text-[11px] font-medium print:py-0.5">
-              Flujo Neto de {meta.label}
-            </td>
-            <td className={`text-right text-[11px] font-bold ${data.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-              {fmtRD(data.netFlow)}
-            </td>
-          </tr>
-        </>
+      {isExpanded && allItems.length > 0 && allItems.map(item => (
+        <tr key={`${item.category}-${item.type}`} className="border-b border-stone-100">
+          <td className="py-1 px-6 text-[11px] text-stone-600">
+            {item.type === 'inflow' ? '+' : '-'} {item.label}
+            <span className="text-stone-400 ml-1">({item.count})</span>
+          </td>
+          <td className={`text-right text-[11px] ${item.type === 'inflow' ? 'text-green-600' : 'text-red-500'}`}>
+            {fmtRD(item.total)}
+          </td>
+        </tr>
+      ))}
+      {isExpanded && allItems.length === 0 && (
+        <tr className="border-b border-stone-100">
+          <td className="py-1 px-6 text-[11px] text-stone-400 italic" colSpan={2}>
+            Sin movimientos en esta categoria
+          </td>
+        </tr>
       )}
     </>
   )
 }
-
-

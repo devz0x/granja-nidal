@@ -187,6 +187,7 @@ DROP TRIGGER IF EXISTS audit_monthly_records_trigger ON monthly_records;
 DROP TRIGGER IF EXISTS audit_feed_inventory_trigger ON feed_inventory;
 DROP TRIGGER IF EXISTS audit_vaccinations_trigger ON vaccinations;
 DROP TRIGGER IF EXISTS audit_user_roles_trigger ON user_roles;
+DROP TRIGGER IF EXISTS audit_cash_flow_entries_trigger ON cash_flow_entries;
 CREATE TRIGGER audit_farms_trigger AFTER INSERT OR UPDATE OR DELETE ON farms FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 CREATE TRIGGER audit_batches_trigger AFTER INSERT OR UPDATE OR DELETE ON batches FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 CREATE TRIGGER audit_daily_entries_trigger AFTER INSERT OR UPDATE OR DELETE ON daily_entries FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
@@ -196,6 +197,7 @@ CREATE TRIGGER audit_monthly_records_trigger AFTER INSERT OR UPDATE OR DELETE ON
 CREATE TRIGGER audit_feed_inventory_trigger AFTER INSERT OR UPDATE OR DELETE ON feed_inventory FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 CREATE TRIGGER audit_vaccinations_trigger AFTER INSERT OR UPDATE OR DELETE ON vaccinations FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 CREATE TRIGGER audit_user_roles_trigger AFTER INSERT OR UPDATE OR DELETE ON user_roles FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
+CREATE TRIGGER audit_cash_flow_entries_trigger AFTER INSERT OR UPDATE OR DELETE ON cash_flow_entries FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 
 ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
@@ -251,6 +253,34 @@ CREATE POLICY "Farm owner or superadmin access" ON feed_inventory FOR ALL USING 
 DROP POLICY IF EXISTS "Farm owner access via farms" ON vaccinations;
 DROP POLICY IF EXISTS "Farm owner or superadmin access" ON vaccinations;
 CREATE POLICY "Farm owner or superadmin access" ON vaccinations FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid())) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()));
+
+-- ================================================================
+-- CASH FLOW ENTRIES TABLE
+-- ================================================================
+CREATE TABLE IF NOT EXISTS cash_flow_entries (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  farm_id UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+  entry_key TEXT UNIQUE,
+  date DATE NOT NULL,
+  category TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  type TEXT NOT NULL CHECK (type IN ('inflow', 'outflow')),
+  reference TEXT DEFAULT '',
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cash_flow_entries_farm_id ON cash_flow_entries(farm_id);
+CREATE INDEX IF NOT EXISTS idx_cash_flow_entries_date ON cash_flow_entries(date);
+CREATE INDEX IF NOT EXISTS idx_cash_flow_entries_entry_key ON cash_flow_entries(entry_key);
+
+ALTER TABLE cash_flow_entries ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Farm owner or superadmin access" ON cash_flow_entries;
+CREATE POLICY "Farm owner or superadmin access" ON cash_flow_entries FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid())) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()));
+
+-- Add cash_flow_balances JSONB column to farms table
+ALTER TABLE farms ADD COLUMN IF NOT EXISTS cash_flow_balances JSONB DEFAULT '{}';
 
 INSERT INTO user_roles (user_id, role, assigned_by)
 SELECT id, 'superadmin', id FROM auth.users WHERE id NOT IN (SELECT user_id FROM user_roles) LIMIT 1
