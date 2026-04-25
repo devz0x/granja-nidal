@@ -42,9 +42,10 @@ import {
   TrendingUp, TrendingDown, DollarSign, Egg, Wheat,
   Activity, Target, Settings, FileText, Sparkles, AlertTriangle, CheckCircle2,
   RefreshCw, Bell, Map, FileOutput, ClipboardCheck, ChevronLeft, ChevronDown, ChevronUp, Eye,
-  Plus, Trash2, Printer,
+  Plus, Trash2, Printer, Banknote,
 } from 'lucide-react'
 import FarmSetup from '@/components/farm-setup'
+import CashFlowPanel from '@/components/cash-flow-panel'
 import { useAuth } from '@/hooks/use-auth'
 import { useRouter } from 'next/navigation'
 import {
@@ -536,7 +537,7 @@ export default function Home() {
   }, [])
 
   // ---- Navigation state ----
-  const [view, setView] = useState<'dashboard' | 'lot-detail' | 'reports' | 'history' | 'map' | 'reminders'>('dashboard')
+  const [view, setView] = useState<'dashboard' | 'lot-detail' | 'reports' | 'history' | 'map' | 'reminders' | 'cash-flow'>('dashboard')
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [configOpen, setConfigOpen] = useState(false)
 
@@ -1024,7 +1025,21 @@ export default function Home() {
             {/* Quick Access Cards */}
             <div>
               <h2 className="text-base font-bold text-stone-800 mb-3">Herramientas</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <button
+                  onClick={() => setView('cash-flow')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition-colors">
+                      <Banknote className="w-5 h-5 text-green-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Flujo de Caja</h3>
+                      <p className="text-[11px] text-stone-400">Estado de flujo de caja mensual</p>
+                    </div>
+                  </div>
+                </button>
                 <button
                   onClick={() => setView('reports')}
                   className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
@@ -1159,6 +1174,15 @@ export default function Home() {
               fmtNum={fmtNum}
             />
           </div>
+        )}
+
+        {/* ====================== CASH FLOW VIEW ====================== */}
+        {view === 'cash-flow' && (
+          <CashFlowPanel
+            goBack={goBack}
+            config={config}
+            calculations={liveCalcs}
+          />
         )}
       </main>
 
