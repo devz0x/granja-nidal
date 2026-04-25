@@ -46,18 +46,21 @@ export default function LoginPage() {
 
       if (data.session) {
         // Auto-assign superadmin role if no roles exist yet
+        let mustChangePassword = false
         try {
-          await fetch('/api/admin/ensure-role', {
+          const roleRes = await fetch('/api/admin/ensure-role', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
           })
+          const roleData = await roleRes.json()
+          mustChangePassword = roleData.must_change_password === true
         } catch {
           // Non-blocking - role assignment is handled server-side
         }
 
-        setSuccess('Inicio de sesion exitoso!')
+        setSuccess(mustChangePassword ? 'Debes cambiar tu contraseña temporal.' : 'Inicio de sesion exitoso!')
         setTimeout(() => {
-          router.push('/')
+          router.push(mustChangePassword ? '/auth/change-password' : '/')
           router.refresh()
         }, 500)
       }

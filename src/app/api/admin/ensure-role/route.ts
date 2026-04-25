@@ -41,11 +41,11 @@ export async function POST() {
 
   const { error } = await supabase
     .from('user_roles')
-    .insert({ user_id: user.id, role, assigned_by: user.id })
+    .insert({ user_id: user.id, role, assigned_by: user.id, must_change_password: true })
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, role, email: user.email })
+  return NextResponse.json({ success: true, role, email: user.email, must_change_password: true })
 }

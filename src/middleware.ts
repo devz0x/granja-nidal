@@ -13,7 +13,7 @@ export async function middleware(req: NextRequest) {
 
   const { pathname } = req.nextUrl
 
-  // Always allow auth routes
+  // Always allow auth routes (login, signup, change-password, callback)
   if (pathname.startsWith('/auth/')) {
     return NextResponse.next()
   }
@@ -28,25 +28,7 @@ export async function middleware(req: NextRequest) {
   }
 
   // Create a Supabase client for the middleware using @supabase/ssr
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll()
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) =>
-          req.cookies.set(name, value)
-        )
-        const response = NextResponse.next({
-          request: { headers: req.headers },
-        })
-        cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options)
-        )
-        return response
-      },
-    },
-  })
+  const { supabase, response } = createMiddlewareSupabaseClient(req)
 
   // Refresh the session to keep it alive
   const { data: { user } } = await supabase.auth.getUser()
@@ -58,15 +40,62 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // IMPORTANT: If setAll was called (session was refreshed), return the response
-  // with updated cookies. This ensures the session stays alive.
-  // We check this by comparing if cookies were modified.
-  const response = NextResponse.next({
-    request: { headers: req.headers },
-  })
+  // If user is authenticated, check if they must change their password
+  if (user && (pathname === '/' || pathname === '')) {
+    try {
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('must_change_password')
+        .eq('user_id', user.id)
+        .single()
+
+      if (roleData?.must_change_password) {
+        const changePwdUrl = new URL('/auth/change-password', req.url)
+        return NextResponse.redirect(changePwdUrl)
+      }
+    } catch {
+      // If user_roles table doesn't exist yet or query fails, let them through
+    }
+  }
 
   return response
 }
+
+/**
+ * Creates a Supabase client for middleware with proper cookie handling.
+ * Returns both the client and a NextResponse with any updated cookies.
+ */
+function createMiddlewareSupabaseClient(req: NextRequest) {
+  let cookieModified = false
+  const res = NextResponse.next({
+    request: { headers: req.headers },
+  })
+
+  const supabase = createServerClient(supabaseUrl(), supabaseAnonKey(), {
+    cookies: {
+      getAll() {
+        return req.cookies.getAll()
+      },
+      setAll(cookiesToSet) {
+        cookieModified = true
+        cookiesToSet.forEach(({ name, value }) =>
+          req.cookies.set(name, value)
+        )
+        cookiesToSet.forEach(({ name, value, options }) =>
+          res.cookies.set(name, value, options)
+        )
+      },
+    },
+  })
+
+  return { supabase, response: res }
+}
+
+// Cache env reads
+const _supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const _supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+function supabaseUrl() { return _supabaseUrl }
+function supabaseAnonKey() { return _supabaseAnonKey }
 
 export const config = {
   matcher: [

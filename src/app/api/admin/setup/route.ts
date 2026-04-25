@@ -255,4 +255,25 @@ CREATE POLICY "Farm owner or superadmin access" ON vaccinations FOR ALL USING (f
 INSERT INTO user_roles (user_id, role, assigned_by)
 SELECT id, 'superadmin', id FROM auth.users WHERE id NOT IN (SELECT user_id FROM user_roles) LIMIT 1
 ON CONFLICT (user_id) DO NOTHING;
+
+-- ================================================================
+-- FORCE PASSWORD CHANGE MIGRATION
+-- ================================================================
+ALTER TABLE user_roles
+  ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT true;
+UPDATE user_roles
+SET must_change_password = false
+WHERE must_change_password IS NULL;
+CREATE OR REPLACE FUNCTION clear_must_change_password()
+RETURNS VOID AS $$
+BEGIN
+  UPDATE user_roles
+  SET must_change_password = false,
+      updated_at = NOW()
+  WHERE user_id = auth.uid()
+    AND must_change_password = true;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+REVOKE ALL ON FUNCTION clear_must_change_password() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION clear_must_change_password() TO authenticated;
 `
