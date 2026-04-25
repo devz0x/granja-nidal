@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   if (authError) return authError
 
   // Prefer non-pooling for DDL operations (avoids SSL pooler issues)
-  const postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
+  let postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
   if (!postgresUrl) {
     return NextResponse.json(
       { error: 'POSTGRES_URL no configurada. La integracion Supabase-Vercel debe estar activa.' },
@@ -25,13 +25,17 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Force sslmode=no-verify to handle self-signed certs from Supavisor pooler
+  const urlObj = new URL(postgresUrl)
+  if (!urlObj.searchParams.has('sslmode')) {
+    urlObj.searchParams.set('sslmode', 'no-verify')
+  }
+  postgresUrl = urlObj.toString()
+
   try {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
-      ssl: process.env.NODE_ENV === 'production'
-        ? { rejectUnauthorized: false }
-        : undefined,
       max: 1,
       idleTimeoutMillis: 30000,
     })
@@ -62,17 +66,21 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  const postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
+  let postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
   if (!postgresUrl) {
     return NextResponse.json({ configured: false, message: 'POSTGRES_URL no configurada' })
   }
+
+  const urlObj = new URL(postgresUrl)
+  if (!urlObj.searchParams.has('sslmode')) {
+    urlObj.searchParams.set('sslmode', 'no-verify')
+  }
+  postgresUrl = urlObj.toString()
+
   try {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
-      ssl: process.env.NODE_ENV === 'production'
-        ? { rejectUnauthorized: false }
-        : undefined,
       max: 1,
     })
     const result = await pool.query(
