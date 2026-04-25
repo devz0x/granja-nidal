@@ -27,15 +27,14 @@ export async function POST(req: NextRequest) {
 
   // Force sslmode=no-verify to handle self-signed certs from Supavisor pooler
   const urlObj = new URL(postgresUrl)
-  if (!urlObj.searchParams.has('sslmode')) {
-    urlObj.searchParams.set('sslmode', 'no-verify')
-  }
+  urlObj.searchParams.set('sslmode', 'no-verify')
   postgresUrl = urlObj.toString()
 
   try {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
+      ssl: { rejectUnauthorized: false },
       max: 1,
       idleTimeoutMillis: 30000,
     })
@@ -72,15 +71,14 @@ export async function GET() {
   }
 
   const urlObj = new URL(postgresUrl)
-  if (!urlObj.searchParams.has('sslmode')) {
-    urlObj.searchParams.set('sslmode', 'no-verify')
-  }
+  urlObj.searchParams.set('sslmode', 'no-verify')
   postgresUrl = urlObj.toString()
 
   try {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
+      ssl: { rejectUnauthorized: false },
       max: 1,
     })
     const result = await pool.query(
