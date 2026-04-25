@@ -492,16 +492,13 @@ export function generateCycleWarningReminder(
 }
 
 /**
- * Limpia todos los recordatorios auto-generados de un lote específico.
- * Útil cuando se elimina un lote.
+ * Elimina TODOS los recordatorios asociados a un lote (auto-generados y manuales).
+ * Se llama al borrar un lote para que sus alertas desaparezcan.
  */
 export function clearAutoRemindersForBatch(batchId: string): number {
   const reminders = getExistingReminders()
   const before = reminders.length
-  const filtered = reminders.filter(r => {
-    if (!r.autoSource || r.batchId !== batchId) return true
-    return false
-  })
+  const filtered = reminders.filter(r => r.batchId !== batchId)
   if (filtered.length < before) {
     saveReminders(filtered)
   }
