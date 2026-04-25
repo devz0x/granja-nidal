@@ -80,3 +80,38 @@ Stage Summary:
 - After password change, user is signed out and redirected to login
 - Middleware acts as a safety net to redirect authenticated users who somehow bypass the login redirect
 - Deployment: https://granja-nidal.vercel.app
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Implement Estado de Flujo de Caja for poultry farm management app
+
+Work Log:
+- Researched existing financial data: FarmConfig (prices, costs), StructuralExpense[], computeCalculations(), ReportsPanel
+- Analyzed app architecture: monolithic single-page app with view-based navigation, localStorage state
+- Designed 21 cash flow categories specific to poultry farm operations organized by 3 activity types
+- Created src/components/cash-flow-panel.tsx (~650 lines) with:
+  - 21 categories: Operating (sales, feed, payroll, utilities, veterinary, transport, maintenance, etc.), Investing (infrastructure, equipment, vehicles), Financing (loans, capital)
+  - Monthly period filtering with selectable month
+  - Opening/closing balance tracking per period
+  - Auto-fill from existing config calculations (estimated monthly values)
+  - Collapsible statement rows grouped by activity type
+  - % change vs previous month comparison
+  - Transaction entry dialog with type toggle (inflow/outflow)
+  - Full transaction list with category, date, reference, and delete
+  - Print support with professional report header
+  - localStorage persistence (consistent with app architecture)
+- Modified src/app/page.tsx:
+  - Added 'cash-flow' to view type union
+  - Added CashFlowPanel import and Banknote icon
+  - Added "Flujo de Caja" Quick Access card (first position, green theme)
+  - Changed grid from 3-col to 4-col (lg:grid-cols-4)
+  - Added view rendering section for cash-flow
+- Build passed cleanly, deployed successfully to Vercel
+
+Stage Summary:
+- Feature fully implemented and deployed at https://granja-nidal.vercel.app
+- The Estado de Flujo de Caja follows proper accounting format: Operating + Investing + Financing = Net Flow
+- Categories are specifically tailored to poultry farm operations in Dominican Republic
+- Uses RD$ (DOP) currency formatting
+- Data stored in localStorage following the existing app pattern
