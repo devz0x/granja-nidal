@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth-api'
 
+export const runtime = 'nodejs'
+
 /**
  * POST /api/admin/setup
  *
@@ -69,8 +71,10 @@ export async function GET() {
     )
     await pool.end()
     return NextResponse.json({ configured: true, isSetup: result.rows[0]?.setup || false })
-  } catch {
-    return NextResponse.json({ configured: false, isSetup: false })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('Setup check error:', msg)
+    return NextResponse.json({ configured: true, isSetup: false, error: msg })
   }
 }
 
