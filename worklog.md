@@ -115,3 +115,28 @@ Stage Summary:
 - Categories are specifically tailored to poultry farm operations in Dominican Republic
 - Uses RD$ (DOP) currency formatting
 - Data stored in localStorage following the existing app pattern
+---
+Task ID: 1
+Agent: Main Agent
+Task: Unify app to single farm (Granja Nidal) — remove multi-farm support
+
+Work Log:
+- Investigated multi-farm system: farms table, FarmSetup wizard, farm_id query params, localStorage dual mode
+- Found farms table was empty (app was in localStorage-only mode)
+- Generated fixed UUID 51872fc1-ef45-4a7a-a79c-596c987318ff for Granja Nidal
+- Added SQL migration to admin/setup to auto-create Granja Nidal farm (with slug conflict handling)
+- Removed FarmSetup component and gate from page.tsx
+- Added auto-setup useEffect that runs /api/admin/setup on first authenticated load (one-time)
+- Simplified getFarmId() to only use NEXT_PUBLIC_FARM_ID env var (no localStorage fallback)
+- Cleaned sign-out to not clear farm ID
+- Set NEXT_PUBLIC_FARM_ID env var on Vercel production
+- Executed setup migration successfully, Granja Nidal farm created in Supabase
+- Verified farm ID is embedded in production JS bundle
+
+Stage Summary:
+- App now operates in single-farm mode (Granja Nidal only)
+- FarmSetup wizard completely removed
+- All API routes continue working with farm_id from env var via query params
+- Farm auto-created in Supabase with UUID 51872fc1-ef45-4a7a-a79c-596c987318ff
+- Files modified: src/app/page.tsx, src/lib/supabase.ts, src/app/api/admin/setup/route.ts
+- File removed from imports: src/components/farm-setup.tsx (file kept but no longer imported)
