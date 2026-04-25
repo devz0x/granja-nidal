@@ -276,4 +276,14 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 REVOKE ALL ON FUNCTION clear_must_change_password() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION clear_must_change_password() TO authenticated;
+
+-- ================================================================
+-- ENSURE GRANJA NIDAL FARM EXISTS (single-farm mode)
+-- ================================================================
+INSERT INTO farms (id, name, slug, user_id, config)
+SELECT '51872fc1-ef45-4a7a-a79c-596c987318ff', 'Granja Nidal', 'granja-nidal', ur.user_id, '{}'
+FROM user_roles ur
+WHERE ur.role = 'superadmin'
+  AND NOT EXISTS (SELECT 1 FROM farms WHERE id = '51872fc1-ef45-4a7a-a79c-596c987318ff')
+ON CONFLICT (id) DO NOTHING;
 `

@@ -44,7 +44,7 @@ import {
   RefreshCw, Bell, Map, FileOutput, ClipboardCheck, ChevronLeft, ChevronDown, ChevronUp, Eye,
   Plus, Trash2, Printer, Banknote,
 } from 'lucide-react'
-import FarmSetup from '@/components/farm-setup'
+// Granja Nidal: single-farm mode — FarmSetup removed
 import CashFlowPanel from '@/components/cash-flow-panel'
 import { useAuth } from '@/hooks/use-auth'
 import { useRouter } from 'next/navigation'
@@ -506,7 +506,6 @@ export default function Home() {
   const handleSignOut = useCallback(async () => {
     try {
       await signOut()
-      localStorage.removeItem('granja-wd80-farm-id')
       router.push('/auth/login')
       router.refresh()
     } catch (err) {
@@ -516,25 +515,22 @@ export default function Home() {
 
   // ---- Hydration guard ----
   const [mounted, setMounted] = useState(false)
-  const [showFarmSetup, setShowFarmSetup] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
-  // ---- Farm setup check (only show if authenticated and no farm) ----
+  // ---- Auto-ensure DB setup on first authenticated load (single-farm mode) ----
   useEffect(() => {
-    if (mounted && isSupabaseConfigured() && isAuthenticated && !getFarmId()) {
-      setShowFarmSetup(true)
+    if (mounted && isSupabaseConfigured() && isAuthenticated) {
+      const setupDone = localStorage.getItem('granja-nidal-setup-done')
+      if (!setupDone) {
+        fetch('/api/admin/setup', { method: 'POST' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.success) localStorage.setItem('granja-nidal-setup-done', 'true')
+          })
+          .catch(() => {})
+      }
     }
   }, [mounted, isAuthenticated])
-
-
-  const handleFarmConnected = useCallback(() => {
-    setShowFarmSetup(false)
-    window.location.reload()
-  }, [])
-
-  const handleDismissFarmSetup = useCallback(() => {
-    setShowFarmSetup(false)
-  }, [])
 
   // ---- Navigation state ----
   const [view, setView] = useState<'dashboard' | 'lot-detail' | 'reports' | 'history' | 'map' | 'reminders' | 'cash-flow'>('dashboard')
@@ -801,11 +797,6 @@ export default function Home() {
     return <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-stone-50 to-amber-50/30">
       <Loader2 className="w-8 h-8 animate-spin text-stone-400" />
     </div>
-  }
-
-  // Show farm setup if Supabase is configured but no farm is connected
-  if (showFarmSetup) {
-    return <FarmSetup onFarmConnected={handleFarmConnected} onDismiss={handleDismissFarmSetup} />
   }
 
   return (

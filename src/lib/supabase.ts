@@ -69,29 +69,22 @@ export const getAuthToken = async (): Promise<string | null> => {
 }
 
 // ================================================================
-// Farm ID Helpers
+// Farm ID Helpers (single-farm mode: Granja Nidal)
 // ================================================================
 
-// Get the farm ID from env or localStorage
+// Get the farm ID — uses NEXT_PUBLIC_FARM_ID env var (set on Vercel)
 export const getFarmId = (): string | null => {
   if (typeof window !== 'undefined') {
     const envFarmId = process.env.NEXT_PUBLIC_FARM_ID
     if (envFarmId) return envFarmId
-
-    const stored = localStorage.getItem('granja-wd80-farm-id')
-    if (stored) return stored
   }
   return null
 }
 
-export const setFarmId = (farmId: string): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('granja-wd80-farm-id', farmId)
-  }
+export const setFarmId = (_farmId: string): void => {
+  // No-op in single-farm mode (farm ID comes from env var)
 }
 
 export const clearFarmId = (): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('granja-wd80-farm-id')
-  }
+  // No-op in single-farm mode (farm ID comes from env var)
 }
