@@ -12,6 +12,10 @@ import {
   ArrowLeft, Egg, Wheat, DollarSign, Info, Trash2,
   BarChart3, ClipboardCheck, Heart, Clock,
 } from 'lucide-react'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type {
   PhaseKey, FarmConfig, BatchConfig, CalculationsResult,
 } from '@/lib/farm-data'
@@ -94,6 +98,7 @@ interface LotDetailProps {
 // ================================================================
 export default function LotDetail({ batch, totalBatches, calc, config, onBack, updateBatch, removeBatch }: LotDetailProps) {
   const [activeSubTab, setActiveSubTab] = useState<LotSubTab>('general')
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const detail = calc.batchDetails.find(b => b.id === batch.id)
   const feed = config.feedPhases[batch.phase]
 
@@ -146,12 +151,29 @@ export default function LotDetail({ batch, totalBatches, calc, config, onBack, u
                 </div>
               </div>
             </div>
-            {totalBatches > 1 && (
-              <Button variant="ghost" size="sm" onClick={() => removeBatch(batch.id)}
-                className="text-red-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0">
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            )}
+            <Button variant="ghost" size="sm" onClick={() => setDeleteOpen(true)}
+              className="text-red-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0">
+              <Trash2 className="w-4 h-4" />
+            </Button>
+            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Eliminar {batch.name}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Se eliminaran todos los datos de este lote, incluyendo su historial de produccion, alertas y recordatorios. Esta accion no se puede deshacer.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => { removeBatch(batch.id); setDeleteOpen(false) }}
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    Eliminar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
 
           {/* Quick KPI row */}

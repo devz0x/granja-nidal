@@ -106,6 +106,16 @@ export function deleteDailyEntry(id: string): DailyEntry[] {
 }
 
 // ================================================================
+// ELIMINAR ENTRADAS DIARIAS DE UN LOTE (para cuando se borra un lote)
+// ================================================================
+export function deleteEntriesForBatch(batchId: string): DailyEntry[] {
+  const entries = getDailyEntries()
+  const filtered = entries.filter(e => e.batchId !== batchId)
+  localStorage.setItem(LS_DAILY_ENTRIES, JSON.stringify(filtered))
+  return filtered
+}
+
+// ================================================================
 // FILTRAR POR LOTE
 // ================================================================
 export function getEntriesForBatch(entries: DailyEntry[], batchId: string): DailyEntry[] {

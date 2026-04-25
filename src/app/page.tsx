@@ -15,6 +15,10 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import LotCard from '@/components/lot-card'
 import LotDetail from '@/components/lot-detail'
 import ConfigSheet from '@/components/config-sheet'
@@ -22,7 +26,7 @@ import ReportsPanel from '@/components/reports-panel'
 import RemindersPanel from '@/components/reminders-panel'
 import FarmMapView from '@/components/farm-map-view'
 import { generateRemindersForNewBatch, generatePhaseChangeReminders, generateCycleWarningReminder, clearAutoRemindersForBatch } from '@/lib/auto-reminders'
-import { getDailyEntries, deleteDailyEntry, getEntriesForBatch, getEntriesForDateRange, getWeekSummaries, getMonthSummaries } from '@/lib/history'
+import { getDailyEntries, deleteDailyEntry, deleteEntriesForBatch, getEntriesForBatch, getEntriesForDateRange, getWeekSummaries, getMonthSummaries } from '@/lib/history'
 import type { DailyEntry, WeekSummary, MonthSummary } from '@/lib/history'
 import type {
   PhaseKey, FarmConfig, BatchConfig, StructuralExpense, StructuralFrequency,
@@ -544,6 +548,7 @@ export default function Home() {
   })
   const [notes, setNotes] = useState('')
   const [expandedRecord, setExpandedRecord] = useState<string | null>(null)
+  const [dashboardDeleteBatch, setDashboardDeleteBatch] = useState<BatchConfig | null>(null)
 
   // Persist to localStorage
   useEffect(() => { localStorage.setItem('granja-wd80-config', JSON.stringify(config)) }, [config])
@@ -589,7 +594,10 @@ export default function Home() {
 
   const removeBatch = useCallback((id: string) => {
     setBatches(prev => prev.filter(b => b.id !== id))
-    setTimeout(() => { clearAutoRemindersForBatch(id) }, 100)
+    setTimeout(() => {
+      clearAutoRemindersForBatch(id)
+      deleteEntriesForBatch(id)
+    }, 100)
     if (selectedBatchId === id) {
       setSelectedBatchId(null)
       setView('dashboard')
@@ -708,6 +716,17 @@ export default function Home() {
     setView('dashboard')
     setSelectedBatchId(null)
   }, [])
+
+  const handleDashboardDelete = useCallback((batch: BatchConfig) => {
+    setDashboardDeleteBatch(batch)
+  }, [])
+
+  const confirmDashboardDelete = useCallback(() => {
+    if (dashboardDeleteBatch) {
+      removeBatch(dashboardDeleteBatch.id)
+      setDashboardDeleteBatch(null)
+    }
+  }, [dashboardDeleteBatch, removeBatch])
 
   // ---- Selected batch ----
   const selectedBatch = selectedBatchId ? batches.find(b => b.id === selectedBatchId) : null
@@ -905,6 +924,7 @@ export default function Home() {
                     calc={liveCalcs}
                     config={config}
                     onClick={() => openLotDetail(batch.id)}
+                    onDelete={() => handleDashboardDelete(batch)}
                   />
                 ))}
               </div>
@@ -1066,6 +1086,27 @@ export default function Home() {
         saveRecord={saveRecord}
         resetAll={resetAll}
       />
+
+      {/* Dashboard Delete Confirmation */}
+      <AlertDialog open={!!dashboardDeleteBatch} onOpenChange={(open) => { if (!open) setDashboardDeleteBatch(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar {dashboardDeleteBatch?.name}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminaran todos los datos de este lote, incluyendo su historial de produccion, alertas y recordatorios. Esta accion no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDashboardDelete}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

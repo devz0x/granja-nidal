@@ -2,7 +2,7 @@
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Activity, TrendingUp, TrendingDown, Egg, Wheat, Bell } from 'lucide-react'
+import { Activity, TrendingUp, TrendingDown, Egg, Wheat, Bell, Trash2 } from 'lucide-react'
 import type { BatchConfig, PhaseKey, CalculationsResult } from '@/lib/farm-data'
 import { fmtRD, fmtNum, fmtPct, PHASE_COLORS, getAlertCountForBatch } from '@/lib/farm-data'
 
@@ -11,9 +11,10 @@ interface LotCardProps {
   calc: CalculationsResult
   config: { eggPrice: number; feedPhases: Record<PhaseKey, { label: string; consumption: number; price: number; weeks: string }> }
   onClick: () => void
+  onDelete?: () => void
 }
 
-export default function LotCard({ batch, calc, config, onClick }: LotCardProps) {
+export default function LotCard({ batch, calc, config, onClick, onDelete }: LotCardProps) {
   const detail = calc.batchDetails.find(b => b.id === batch.id)
   const feed = config.feedPhases[batch.phase]
   const alertCount = getAlertCountForBatch(batch.id)
@@ -53,6 +54,15 @@ export default function LotCard({ batch, calc, config, onClick }: LotCardProps) 
                   {alertCount > 9 ? '9+' : alertCount}
                 </span>
               </div>
+            )}
+            {onDelete && (
+              <button
+                onClick={e => { e.stopPropagation(); onDelete() }}
+                className="w-6 h-6 rounded-md flex items-center justify-center text-stone-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                title="Eliminar lote"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             )}
           </div>
         </div>

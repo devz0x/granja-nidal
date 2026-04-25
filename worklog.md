@@ -261,3 +261,24 @@ Stage Summary:
 - Week and month aggregation logic with Spanish labels and per-batch breakdowns
 - Lot detail now has "Historial" sub-tab showing per-batch daily entries
 - All text in Spanish, minimalist stone color scheme, existing shadcn/ui components
+---
+Task ID: 1
+Agent: main
+Task: Enable delete functionality for lots (lotes) in Granja Nidal app
+
+Work Log:
+- Read and analyzed current codebase: page.tsx, lot-detail.tsx, lot-card.tsx, history.ts, auto-reminders.ts
+- Added deleteEntriesForBatch() function to history.ts to clean up daily entries when a batch is deleted
+- Enhanced removeBatch() in page.tsx to also call deleteEntriesForBatch() alongside clearAutoRemindersForBatch()
+- Replaced direct delete button in lot-detail.tsx with AlertDialog confirmation dialog
+- Removed the totalBatches > 1 restriction so any lot can be deleted
+- Added optional onDelete prop to LotCard component with hover-visible trash icon
+- Wired up dashboard delete with AlertDialog confirmation in page.tsx
+- Verified build succeeds with no errors
+
+Stage Summary:
+- Lots can now be deleted from both the dashboard (hover trash icon on cards) and from the lot detail view
+- Both deletion paths show a confirmation AlertDialog before proceeding
+- Deleting a lot now cleans up: batch data, daily history entries, and auto-generated reminders
+- Any lot can be deleted (no minimum lot restriction)
+- Build passes successfully
