@@ -45,7 +45,17 @@ export default function LoginPage() {
       }
 
       if (data.session) {
-        setSuccess('Inicio de sesión exitoso!')
+        // Auto-assign superadmin role if no roles exist yet
+        try {
+          await fetch('/api/admin/ensure-role', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          })
+        } catch {
+          // Non-blocking - role assignment is handled server-side
+        }
+
+        setSuccess('Inicio de sesion exitoso!')
         setTimeout(() => {
           router.push('/')
           router.refresh()
