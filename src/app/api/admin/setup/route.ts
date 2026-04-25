@@ -16,7 +16,8 @@ export async function POST(req: NextRequest) {
   const { user, error: authError } = await verifyAuth()
   if (authError) return authError
 
-  const postgresUrl = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING
+  // Prefer non-pooling for DDL operations (avoids SSL pooler issues)
+  const postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
   if (!postgresUrl) {
     return NextResponse.json(
       { error: 'POSTGRES_URL no configurada. La integracion Supabase-Vercel debe estar activa.' },
@@ -28,7 +29,9 @@ export async function POST(req: NextRequest) {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
-      ssl: { rejectUnauthorized: false },
+      ssl: process.env.NODE_ENV === 'production'
+        ? { rejectUnauthorized: false }
+        : undefined,
       max: 1,
       idleTimeoutMillis: 30000,
     })
@@ -59,13 +62,19 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  const postgresUrl = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING
+  const postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
   if (!postgresUrl) {
     return NextResponse.json({ configured: false, message: 'POSTGRES_URL no configurada' })
   }
   try {
     const { default: pg } = await import('pg')
-    const pool = new pg.Pool({ connectionString: postgresUrl, ssl: { rejectUnauthorized: false }, max: 1 })
+    const pool = new pg.Pool({
+      connectionString: postgresUrl,
+      ssl: process.env.NODE_ENV === 'production'
+        ? { rejectUnauthorized: false }
+        : undefined,
+      max: 1,
+    })
     const result = await pool.query(
       "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='user_roles') as setup"
     )
