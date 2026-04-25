@@ -273,7 +273,39 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
   }, [vaccinationRecords])
 
   const addDailyEntry = () => {
-    if (!newEntry.batchId || !newEntry.eggsCollected && newEntry.eggsCollected !== 0) return
+    if (!newEntry.batchId) {
+      alert('Selecciona un lote para registrar la produccion.')
+      return
+    }
+    if (!newEntry.eggsCollected && newEntry.eggsCollected !== 0) {
+      alert('Ingresa la cantidad de huevos recogidos.')
+      return
+    }
+    if (newEntry.eggsCollected < 0) {
+      alert('Los huevos recogidos no pueden ser negativos.')
+      return
+    }
+    if (newEntry.eggsBroken && newEntry.eggsBroken < 0) {
+      alert('Los huevos rotos no pueden ser negativos.')
+      return
+    }
+    if (newEntry.mortality && newEntry.mortality < 0) {
+      alert('La mortalidad no puede ser negativa.')
+      return
+    }
+    if (newEntry.feedKg && newEntry.feedKg < 0) {
+      alert('El feed no puede ser negativo.')
+      return
+    }
+    if (newEntry.waterLiters && newEntry.waterLiters < 0) {
+      alert('El agua no puede ser negativa.')
+      return
+    }
+    // Validar que huevos rotos no superen recogidos
+    if (newEntry.eggsBroken && newEntry.eggsCollected && newEntry.eggsBroken > newEntry.eggsCollected) {
+      alert('Los huevos rotos no pueden superar los huevos recogidos.')
+      return
+    }
     const entry: DailyProductionEntry = {
       id: `de-${Date.now()}`,
       date: newEntry.date || today,
@@ -299,7 +331,14 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
 
   // --- Vaccination CRUD ---
   const addVaccination = () => {
-    if (!newVaccine.batchId || !newVaccine.vaccineName) return
+    if (!newVaccine.batchId) {
+      alert('Selecciona un lote para la vacuna.')
+      return
+    }
+    if (!newVaccine.vaccineName || !newVaccine.vaccineName.trim()) {
+      alert('Ingresa el nombre de la vacuna.')
+      return
+    }
     const vac: VaccinationRecord = {
       id: `vac-${Date.now()}`,
       batchId: newVaccine.batchId || '',

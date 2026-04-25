@@ -16,7 +16,13 @@ import {
   DollarSign, Wheat, Heart, Building2, LayoutGrid, Hammer,
   ChevronDown, ChevronUp, RotateCcw, Plus, Trash2,
   TrendingUp, TrendingDown, Save, Info, Zap,
+  Download, Upload, FileJson, FileSpreadsheet, Database, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
+import {
+  exportAllDataAsJSON, importAllDataFromJSON, exportDailyEntriesAsCSV,
+  importDailyEntriesFromCSV, downloadJSON, downloadCSV, getDataSummary,
+} from '@/lib/data-io'
+import type { ImportResult } from '@/lib/data-io'
 import type {
   PhaseKey, FarmConfig, BatchConfig, StructuralExpense, StructuralFrequency,
   CalculationsResult
@@ -497,6 +503,11 @@ export default function ConfigSheet({
             </CardContent>
           </Card>
 
+          {/* ================================================================ */}
+          {/* --- RESPALDO DE DATOS (Export/Import) --- */}
+          {/* ================================================================ */}
+          <DataBackupSection />
+
           {/* Bottom actions */}
           <div className="flex flex-wrap gap-3 pt-2">
             <Button onClick={saveRecord} className="gap-2">
@@ -509,6 +520,159 @@ export default function ConfigSheet({
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+// ================================================================
+// DATA BACKUP SECTION (Export / Import)
+// ================================================================
+function DataBackupSection() {
+  const [importStatus, setImportStatus] = useState<ImportResult | null>(null)
+  const [isImporting, setIsImporting] = useState(false)
+  const fileInputRef = { current: null as HTMLInputElement | null }
+  const csvInputRef = { current: null as HTMLInputElement | null }
+
+  const summary = typeof window !== 'undefined' ? getDataSummary() : null
+
+  const handleExportJSON = () => {
+    const json = exportAllDataAsJSON()
+    downloadJSON(json)
+    setImportStatus({ success: true, message: 'Respaldo JSON descargado exitosamente.' })
+    setTimeout(() => setImportStatus(null), 4000)
+  }
+
+  const handleExportCSV = () => {
+    const csv = exportDailyEntriesAsCSV()
+    if (!csv) {
+      setImportStatus({ success: false, message: 'No hay registros de produccion diaria para exportar.' })
+      setTimeout(() => setImportStatus(null), 4000)
+      return
+    }
+    downloadCSV(csv)
+    setImportStatus({ success: true, message: `CSV descargado con ${summary?.dailyEntryCount || 0} registros.` })
+    setTimeout(() => setImportStatus(null), 4000)
+  }
+
+  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setIsImporting(true)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const result = importAllDataFromJSON(text)
+      setImportStatus(result)
+      setIsImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (result.success) {
+        setTimeout(() => window.location.reload(), 2000)
+      } else {
+        setTimeout(() => setImportStatus(null), 6000)
+      }
+    }
+    reader.onerror = () => {
+      setImportStatus({ success: false, message: 'Error al leer el archivo.' })
+      setIsImporting(false)
+    }
+    reader.readAsText(file)
+  }
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setIsImporting(true)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const result = importDailyEntriesFromCSV(text)
+      setImportStatus(result)
+      setIsImporting(false)
+      if (csvInputRef.current) csvInputRef.current.value = ''
+      setTimeout(() => {
+        setImportStatus(null)
+        if (result.success) window.location.reload()
+      }, 4000)
+    }
+    reader.onerror = () => {
+      setImportStatus({ success: false, message: 'Error al leer el archivo CSV.' })
+      setIsImporting(false)
+    }
+    reader.readAsText(file)
+  }
+
+  return (
+    <Card className="border-blue-200">
+      <CardHeader className="pb-2 cursor-pointer select-none">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+            <Database className="w-4 h-4 text-blue-700" />
+          </div>
+          <div>
+            <CardTitle className="text-sm">Respaldo de Datos</CardTitle>
+            <CardDescription className="text-[11px]">Exporta e importa todos tus datos de la granja.</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {summary && (
+          <div className="p-2.5 bg-blue-50 rounded-lg">
+            <p className="text-[10px] font-semibold text-blue-900 mb-1.5">Datos actuales almacenados:</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
+              <div><span className="text-blue-600 block">Lotes</span><span className="font-bold">{summary.batchCount}</span></div>
+              <div><span className="text-blue-600 block">Registros mensuales</span><span className="font-bold">{summary.recordCount}</span></div>
+              <div><span className="text-blue-600 block">Produccion diaria</span><span className="font-bold">{summary.dailyEntryCount}</span></div>
+              <div><span className="text-blue-600 block">Alertas</span><span className="font-bold">{summary.reminderCount}</span></div>
+              <div><span className="text-blue-600 block">Vacunas</span><span className="font-bold">{summary.vaccineCount}</span></div>
+              <div><span className="text-blue-600 block">Inventario feed</span><span className="font-bold">{summary.feedInventoryCount}</span></div>
+              <div><span className="text-blue-600 block">Gastos estruct.</span><span className="font-bold">{summary.structuralCount}</span></div>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <p className="text-[10px] font-semibold text-stone-600 mb-2">EXPORTAR:</p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={handleExportJSON} className="gap-2 text-xs">
+              <FileJson className="w-3.5 h-3.5 text-blue-600" /> Respaldo completo (JSON)
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportCSV} className="gap-2 text-xs">
+              <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" /> Produccion diaria (CSV)
+            </Button>
+          </div>
+        </div>
+
+        <div className="border-t pt-3">
+          <p className="text-[10px] font-semibold text-stone-600 mb-2">IMPORTAR:</p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="gap-2 text-xs" disabled={isImporting}>
+              <Upload className="w-3.5 h-3.5 text-amber-600" />
+              {isImporting ? 'Importando...' : 'Cargar respaldo (JSON)'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => csvInputRef.current?.click()} className="gap-2 text-xs" disabled={isImporting}>
+              <Upload className="w-3.5 h-3.5 text-amber-600" />
+              {isImporting ? 'Importando...' : 'Cargar produccion (CSV)'}
+            </Button>
+          </div>
+          <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleImportJSON} />
+          <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
+          <p className="text-[9px] text-stone-400 mt-1.5">
+            JSON: reemplaza todos los datos. CSV: agrega registros diarios sin duplicados.
+          </p>
+        </div>
+
+        {importStatus && (
+          <Alert className={importStatus.success ? 'border-green-300 bg-green-50' : 'border-red-300 bg-red-50'}>
+            {importStatus.success
+              ? <CheckCircle2 className="h-4 w-4 text-green-600" />
+              : <AlertTriangle className="h-4 w-4 text-red-600" />
+            }
+            <AlertDescription className={`text-xs ${importStatus.success ? 'text-green-800' : 'text-red-800'}`}>
+              {importStatus.message}
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
