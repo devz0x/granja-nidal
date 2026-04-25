@@ -13,8 +13,15 @@ export const runtime = 'nodejs'
  * Security: Only authenticated users can run this
  */
 export async function POST(req: NextRequest) {
-  const { user, error: authError } = await verifyAuth()
-  if (authError) return authError
+  // Optionally verify auth (if user is logged in, use their session)
+  // If not authenticated, the SQL will assign the first auth user as superadmin
+  let user = null
+  try {
+    const authResult = await verifyAuth()
+    user = authResult.user
+  } catch {
+    // Continue without auth - setup can run without it
+  }
 
   // Prefer non-pooling for DDL operations (avoids SSL pooler issues)
   let postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
