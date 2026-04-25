@@ -280,6 +280,9 @@ GRANT EXECUTE ON FUNCTION clear_must_change_password() TO authenticated;
 -- ================================================================
 -- ENSURE GRANJA NIDAL FARM EXISTS (single-farm mode)
 -- ================================================================
+-- Remove any existing farm with this slug that doesn't match our UUID
+DELETE FROM farms WHERE slug = 'granja-nidal' AND id != '51872fc1-ef45-4a7a-a79c-596c987318ff';
+-- Insert our canonical farm
 INSERT INTO farms (id, name, slug, user_id, config)
 SELECT '51872fc1-ef45-4a7a-a79c-596c987318ff', 'Granja Nidal', 'granja-nidal', ur.user_id, '{}'
 FROM user_roles ur
