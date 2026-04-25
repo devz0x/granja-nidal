@@ -56,6 +56,130 @@ import { LogOut, User, Loader2 } from 'lucide-react'
 import { isSupabaseConfigured, getFarmId } from '@/lib/supabase'
 
 // ================================================================
+// SUPABASE SYNC HELPERS (shared farm — single source of truth)
+// ================================================================
+const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
+
+async function syncFetchJSON(url: string): Promise<unknown> {
+  const res = await fetch(url)
+  if (!res.ok) return null
+  return res.json()
+}
+
+// Fetch all farm data from Supabase (used on mount + periodic refresh)
+async function fetchFarmData() {
+  if (!FARM_ID) return null
+  const [configRes, batchesRes, recordsRes, expensesRes] = await Promise.all([
+    syncFetchJSON(`/api/config?farm_id=${FARM_ID}`),
+    syncFetchJSON(`/api/batches?farm_id=${FARM_ID}`),
+    syncFetchJSON(`/api/monthly-records?farm_id=${FARM_ID}`),
+    syncFetchJSON(`/api/structural-expenses?farm_id=${FARM_ID}`),
+  ])
+  return { configRes, batchesRes, recordsRes, expensesRes }
+}
+
+// Push config to Supabase
+async function pushConfig(config: Record<string, unknown>) {
+  if (!FARM_ID) return
+  fetch(`/api/config?farm_id=${FARM_ID}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  }).catch(() => {})
+}
+
+// Push a single batch to Supabase (create or update)
+async function pushBatch(batch: Record<string, unknown>) {
+  if (!FARM_ID) return
+  // Check if batch already exists in Supabase
+  const res = await fetch(`/api/batches?farm_id=${FARM_ID}`)
+  const data = await res.json()
+  const existing = data.batches?.find((b: Record<string, unknown>) => b.batch_key === batch.id)
+  if (existing) {
+    fetch(`/api/batches/${existing.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: batch.name,
+        hens: batch.hens,
+        laying_rate: batch.layingRate,
+        is_laying: batch.isLaying,
+        cycle_month: batch.cycleMonth,
+        phase: batch.phase,
+      }),
+    }).catch(() => {})
+  } else {
+    fetch(`/api/batches?farm_id=${FARM_ID}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_key: batch.id,
+        name: batch.name,
+        hens: batch.hens,
+        laying_rate: batch.layingRate,
+        is_laying: batch.isLaying,
+        cycle_month: batch.cycleMonth,
+        phase: batch.phase,
+        sort_order: 0,
+      }),
+    }).catch(() => {})
+  }
+}
+
+// Delete a batch from Supabase
+async function deleteBatchFromAPI(batchId: string) {
+  if (!FARM_ID) return
+  const res = await fetch(`/api/batches?farm_id=${FARM_ID}`)
+  const data = await res.json()
+  const existing = data.batches?.find((b: Record<string, unknown>) => b.batch_key === batchId)
+  if (existing) {
+    fetch(`/api/batches/${existing.id}`, { method: 'DELETE' }).catch(() => {})
+  }
+}
+
+// Push all batches to Supabase
+async function pushAllBatches(batches: Record<string, unknown>[]) {
+  if (!FARM_ID) return
+  for (const batch of batches) {
+    await pushBatch(batch)
+  }
+}
+
+// Push structural expenses to Supabase
+async function pushAllExpenses(expenses: Record<string, unknown>[]) {
+  if (!FARM_ID) return
+  fetch(`/api/structural-expenses?farm_id=${FARM_ID}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expenses }),
+  }).catch(() => {})
+}
+
+// Push a monthly record to Supabase
+async function pushRecord(record: Record<string, unknown>) {
+  if (!FARM_ID) return
+  fetch(`/api/monthly-records?farm_id=${FARM_ID}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      month: record.month,
+      record_date: record.date,
+      batches_snapshot: record.batches,
+      config_snapshot: record.config,
+      notes: record.notes || '',
+      revenue: record.revenue,
+      expenses: record.expenses,
+      net: record.net,
+    }),
+  }).catch(() => {})
+}
+
+// Delete a monthly record from Supabase
+async function deleteRecordFromAPI(id: string) {
+  fetch(`/api/monthly-records/${id}`, { method: 'DELETE' }).catch(() => {})
+}
+
+// ================================================================
 // HISTORY VIEW COMPONENT (3-tab: Diario / Semanal / Mensual)
 // ================================================================
 function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord, deleteRecord, goBack, notes, setNotes, setSavedRecords }: {
@@ -589,15 +713,146 @@ export default function Home() {
   const [expandedRecord, setExpandedRecord] = useState<string | null>(null)
   const [dashboardDeleteBatch, setDashboardDeleteBatch] = useState<BatchConfig | null>(null)
 
-  // Persist to localStorage
+  // Persist to localStorage (cache only — Supabase is source of truth)
   useEffect(() => { localStorage.setItem('granja-wd80-config', JSON.stringify(config)) }, [config])
   useEffect(() => { localStorage.setItem('granja-wd80-batches', JSON.stringify(batches)) }, [batches])
   useEffect(() => { localStorage.setItem('granja-wd80-records', JSON.stringify(savedRecords)) }, [savedRecords])
   useEffect(() => { localStorage.setItem('granja-wd80-structural', JSON.stringify(structuralExpenses)) }, [structuralExpenses])
 
-  // ---- Handlers (preserved exactly) ----
+  // ---- Initial fetch from Supabase (shared farm data) ----
+  const dataLoadedRef = useRef(false)
+  useEffect(() => {
+    if (!mounted || !isAuthenticated || dataLoadedRef.current || !FARM_ID) return
+    dataLoadedRef.current = true
+    fetchFarmData().then(data => {
+      if (!data) return
+      // Load config from Supabase
+      if (data.configRes && (data.configRes as Record<string, unknown>).config) {
+        const dbConfig = (data.configRes as Record<string, unknown>).config as Record<string, unknown>
+        if (dbConfig && Object.keys(dbConfig).length > 0) {
+          setConfig(prev => ({ ...prev, ...dbConfig, feedPhases: { ...DEFAULT_FEED, ...((dbConfig.feedPhases as Record<string, unknown>) || {}) } } as FarmConfig))
+        }
+      }
+      // Load batches from Supabase
+      if (data.batchesRes && (data.batchesRes as Record<string, unknown>).batches) {
+        const dbBatches = (data.batchesRes as Record<string, unknown>).batches as Record<string, unknown>[]
+        if (dbBatches && dbBatches.length > 0) {
+          const mapped = dbBatches.map(b => ({
+            id: b.batch_key as string || b.id as string,
+            name: b.name as string,
+            hens: b.hens as number,
+            layingRate: b.laying_rate as number,
+            isLaying: b.is_laying as boolean,
+            cycleMonth: b.cycle_month as number,
+            phase: b.phase as BatchConfig['phase'],
+          }))
+          setBatches(mapped)
+        }
+      }
+      // Load records from Supabase
+      if (data.recordsRes && (data.recordsRes as Record<string, unknown>).records) {
+        const dbRecords = (data.recordsRes as Record<string, unknown>).records as Record<string, unknown>[]
+        if (dbRecords && dbRecords.length > 0) {
+          const mapped = dbRecords.map(r => ({
+            id: r.id as string,
+            month: r.month as string,
+            date: r.record_date as string,
+            batches: (r.batches_snapshot || []) as BatchConfig[],
+            config: (r.config_snapshot || {}) as FarmConfig,
+            notes: (r.notes || '') as string,
+            revenue: (r.revenue || 0) as number,
+            expenses: (r.expenses || 0) as number,
+            net: (r.net || 0) as number,
+          }))
+          setSavedRecords(mapped)
+        }
+      }
+      // Load structural expenses from Supabase
+      if (data.expensesRes && (data.expensesRes as Record<string, unknown>).expenses) {
+        const dbExpenses = (data.expensesRes as Record<string, unknown>).expenses as Record<string, unknown>[]
+        if (dbExpenses && dbExpenses.length > 0) {
+          const mapped = dbExpenses.map(e => ({
+            id: e.id as string,
+            description: (e.description || '') as string,
+            amount: (e.amount || 0) as number,
+            frequency: (e.frequency || 'unico') as StructuralExpense['frequency'],
+            dateAdded: (e.created_at || '') as string,
+            isActive: e.is_active !== undefined ? (e.is_active as boolean) : true,
+          }))
+          setStructuralExpenses(mapped)
+        }
+      }
+    }).catch(() => {})
+  }, [mounted, isAuthenticated])
+
+  // ---- Auto-refresh from Supabase every 15 seconds ----
+  useEffect(() => {
+    if (!mounted || !isAuthenticated || !FARM_ID) return
+    const interval = setInterval(() => {
+      fetchFarmData().then(data => {
+        if (!data) return
+        // Only update if Supabase has data
+        if (data.batchesRes && (data.batchesRes as Record<string, unknown>).batches) {
+          const dbBatches = (data.batchesRes as Record<string, unknown>).batches as Record<string, unknown>[]
+          if (dbBatches && dbBatches.length > 0) {
+            setBatches(dbBatches.map(b => ({
+              id: b.batch_key as string || b.id as string,
+              name: b.name as string,
+              hens: b.hens as number,
+              layingRate: b.laying_rate as number,
+              isLaying: b.is_laying as boolean,
+              cycleMonth: b.cycle_month as number,
+              phase: b.phase as BatchConfig['phase'],
+            })))
+          }
+        }
+        if (data.configRes && (data.configRes as Record<string, unknown>).config) {
+          const dbConfig = (data.configRes as Record<string, unknown>).config as Record<string, unknown>
+          if (dbConfig && Object.keys(dbConfig).length > 0) {
+            setConfig(prev => ({ ...prev, ...dbConfig, feedPhases: { ...DEFAULT_FEED, ...((dbConfig.feedPhases as Record<string, unknown>) || {}) } } as FarmConfig))
+          }
+        }
+        if (data.expensesRes && (data.expensesRes as Record<string, unknown>).expenses) {
+          const dbExpenses = (data.expensesRes as Record<string, unknown>).expenses as Record<string, unknown>[]
+          if (dbExpenses && dbExpenses.length > 0) {
+            setStructuralExpenses(dbExpenses.map(e => ({
+              id: e.id as string,
+              description: (e.description || '') as string,
+              amount: (e.amount || 0) as number,
+              frequency: (e.frequency || 'unico') as StructuralExpense['frequency'],
+              dateAdded: (e.created_at || '') as string,
+              isActive: e.is_active !== undefined ? (e.is_active as boolean) : true,
+            })))
+          }
+        }
+        if (data.recordsRes && (data.recordsRes as Record<string, unknown>).records) {
+          const dbRecords = (data.recordsRes as Record<string, unknown>).records as Record<string, unknown>[]
+          if (dbRecords && dbRecords.length > 0) {
+            setSavedRecords(dbRecords.map(r => ({
+              id: r.id as string,
+              month: r.month as string,
+              date: r.record_date as string,
+              batches: (r.batches_snapshot || []) as BatchConfig[],
+              config: (r.config_snapshot || {}) as FarmConfig,
+              notes: (r.notes || '') as string,
+              revenue: (r.revenue || 0) as number,
+              expenses: (r.expenses || 0) as number,
+              net: (r.net || 0) as number,
+            })))
+          }
+        }
+      }).catch(() => {})
+    }, 15000)
+    return () => clearInterval(interval)
+  }, [mounted, isAuthenticated])
+
+  // ---- Handlers (Supabase-synced) ----
   const updateConfig = useCallback(<K extends keyof FarmConfig>(key: K, value: FarmConfig[K]) => {
-    setConfig(prev => ({ ...prev, [key]: value }))
+    setConfig(prev => {
+      const updated = { ...prev, [key]: value }
+      pushConfig(updated as unknown as Record<string, unknown>)
+      return updated
+    })
   }, [])
 
   const updateBatch = useCallback((id: string, field: keyof BatchConfig, value: boolean | number | string) => {
@@ -613,6 +868,8 @@ export default function Home() {
         updated.phase = value as PhaseKey
         updated.isLaying = value === 'postura'
       }
+      // Push to Supabase (debounced by React batching)
+      setTimeout(() => pushBatch(updated as unknown as Record<string, unknown>), 0)
       return updated
     }))
   }, [])
@@ -621,10 +878,13 @@ export default function Home() {
     const num = batches.length + 1
     const newId = `batch-${batches.length}`
     const newName = `Galpon ${num}`
-    setBatches(prev => [...prev, {
+    const newBatch = {
       id: newId, name: newName, hens: config.hensPerBatch,
       layingRate: config.baseLayingRate, isLaying: false, cycleMonth: 0, phase: 'pre_inicio',
-    }])
+    }
+    setBatches(prev => [...prev, newBatch])
+    // Push to Supabase
+    pushBatch(newBatch as unknown as Record<string, unknown>)
     const today = new Date().toISOString().split('T')[0]
     setTimeout(() => {
       generateRemindersForNewBatch(newId, newName, config.hensPerBatch, today)
@@ -633,6 +893,8 @@ export default function Home() {
 
   const removeBatch = useCallback((id: string) => {
     setBatches(prev => prev.filter(b => b.id !== id))
+    // Delete from Supabase
+    deleteBatchFromAPI(id)
     setTimeout(() => {
       clearAutoRemindersForBatch(id)
       deleteEntriesForBatch(id)
@@ -670,6 +932,8 @@ export default function Home() {
 
   const deleteRecord = useCallback((id: string) => {
     setSavedRecords(prev => prev.filter(r => r.id !== id))
+    // Delete from Supabase
+    deleteRecordFromAPI(id)
   }, [])
 
   const saveRecord = useCallback(() => {
@@ -688,6 +952,8 @@ export default function Home() {
     }
     setSavedRecords(prev => [record, ...prev])
     setNotes('')
+    // Push to Supabase
+    pushRecord(record as unknown as Record<string, unknown>)
   }, [batches, config, notes, structuralExpenses])
 
   // ================================================================
