@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, Mail, Lock, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Loader2, Mail, Lock, AlertTriangle, CheckCircle2, Shield } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
@@ -151,12 +151,10 @@ export default function LoginPage() {
           </Alert>
         )}
 
-        {/* Link to signup */}
-        <p className="text-center text-sm text-stone-500">
-          ¿No tienes cuenta?{' '}
-          <Link href="/auth/signup" className="text-amber-600 hover:text-amber-700 font-medium underline underline-offset-4">
-            Regístrate aquí
-          </Link>
+        {/* Admin notice */}
+        <p className="text-center text-xs text-stone-400 flex items-center justify-center gap-1.5">
+          <Shield className="w-3 h-3" />
+          Acceso exclusivo para administradores
         </p>
       </div>
     </div>
