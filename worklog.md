@@ -53,3 +53,30 @@ Stage Summary:
 - Superadmin has full read/write access to ALL tables regardless of ownership
 - Regular users can only access their own farm's data
 - New API endpoints: /api/admin/setup, /api/admin/roles, /api/admin/audit, /api/admin/ensure-role
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Implement force password change on first login feature
+
+Work Log:
+- Read existing codebase: superadmin role and audit log already implemented from previous session
+- Created supabase-migration-force-password-change.sql with must_change_password column and clear_must_change_password() SECURITY DEFINER function
+- Updated src/app/api/admin/setup/route.ts MIGRATION_SQL to include the new column and function
+- Updated src/app/api/admin/ensure-role/route.ts to set must_change_password=true for new users
+- Rewrote src/middleware.ts with must_change_password check: authenticated users with flag set are redirected to /auth/change-password
+- Created src/app/auth/change-password/page.tsx with password strength validation UI (8+ chars, uppercase, lowercase, number)
+- Created src/app/api/auth/change-password/route.ts (PUT) that validates current password, updates password via Supabase, clears flag via RPC
+- Updated src/app/auth/login/page.tsx to check must_change_password from ensure-role response and redirect accordingly
+- Build passed cleanly with all new routes
+- Committed, pushed to GitHub, deployed to Vercel
+- Ran DB migration via POST /api/admin/setup
+- Verified: change-password page loads (200), API requires auth (401), login page loads (200)
+
+Stage Summary:
+- Feature fully implemented: new users are flagged must_change_password=true, forced to change password before accessing app
+- Existing users are NOT flagged (must_change_password defaults to false for existing rows)
+- Password requirements: 8+ chars, uppercase, lowercase, number
+- After password change, user is signed out and redirected to login
+- Middleware acts as a safety net to redirect authenticated users who somehow bypass the login redirect
+- Deployment: https://granja-nidal.vercel.app
