@@ -353,45 +353,31 @@ export function computeCalculations(cfg: FarmConfig, bts: BatchConfig[], se: Str
   }
 }
 
-// Count alerts for a specific batch from localStorage
-export function getAlertCountForBatch(batchId: string): number {
-  try {
-    const saved = localStorage.getItem('granja-wd80-reminders')
-    if (!saved) return 0
-    const reminders = JSON.parse(saved) as Array<{ status: string; batchId: string; dueDate: string; priority: string }>
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return reminders.filter(r =>
-      r.batchId === batchId &&
-      r.status !== 'completada' &&
-      r.status !== 'cancelada'
-    ).length
-  } catch {
-    return 0
-  }
+// Count alerts for a specific batch from reminders array (Supabase source of truth)
+export function getAlertCountForBatch(batchId: string, reminders?: Array<{ batchId: string; status: string }>): number {
+  if (!reminders) return 0
+  return reminders.filter(r =>
+    r.batchId === batchId &&
+    r.status !== 'completada' &&
+    r.status !== 'cancelada'
+  ).length
 }
 
-// Count total urgent alerts from localStorage
-export function getUrgentReminderCount(): number {
-  try {
-    const saved = localStorage.getItem('granja-wd80-reminders')
-    if (!saved) return 0
-    const reminders = JSON.parse(saved) as Array<{ status: string; dueDate: string; priority: string }>
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const active = reminders.filter(r => r.status !== 'completada' && r.status !== 'cancelada')
-    const overdue = active.filter(r => {
-      const due = new Date(r.dueDate)
-      due.setHours(0, 0, 0, 0)
-      return due < today
-    })
-    const urgent = active.filter(r => {
-      const due = new Date(r.dueDate)
-      const diff = Math.ceil((due.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-      return r.priority === 'urgente' && diff <= 1
-    })
-    return overdue.length + urgent.length
-  } catch {
-    return 0
-  }
+// Count total urgent alerts from reminders array (Supabase source of truth)
+export function getUrgentReminderCount(reminders?: Array<{ status: string; dueDate: string; priority: string }>): number {
+  if (!reminders) return 0
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const active = reminders.filter(r => r.status !== 'completada' && r.status !== 'cancelada')
+  const overdue = active.filter(r => {
+    const due = new Date(r.dueDate)
+    due.setHours(0, 0, 0, 0)
+    return due < today
+  })
+  const urgent = active.filter(r => {
+    const due = new Date(r.dueDate)
+    const diff = Math.ceil((due.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    return r.priority === 'urgente' && diff <= 1
+  })
+  return overdue.length + urgent.length
 }

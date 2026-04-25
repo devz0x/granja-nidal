@@ -69,7 +69,7 @@ interface RemindersProps {
 // ================================================================
 // CONSTANTS
 // ================================================================
-const LS_KEY = 'granja-wd80-reminders'
+// Data comes from Supabase API — no localStorage
 
 const AUTO_SOURCE_LABELS: Record<string, string> = {
   'batch-created': 'Lote Creado',
@@ -194,23 +194,49 @@ function createEmptyReminder(): Reminder {
 }
 
 // ================================================================
-// Supabase sync helpers
+// Supabase API helpers
 // ================================================================
-async function syncToSupabase(reminders: Reminder[]) {
-  if (!isSupabaseConfigured()) return
-  const farmId = getFarmId()
-  if (!farmId) return
+const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
 
-  try {
-    const res = await fetch(`/api/reminders?farm_id=${farmId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reminders }),
-    })
-    // Best-effort: don't block UI on sync failure
-    if (!res.ok) console.warn('Failed to sync reminders to Supabase')
-  } catch {
-    // Silently fail
+function mapReminderFromDB(r: Record<string, unknown>): Reminder {
+  return {
+    id: r.id as string,
+    title: (r.title || '') as string,
+    description: (r.description || '') as string,
+    category: (r.category || 'otros') as ReminderCategory,
+    priority: (r.priority || 'media') as ReminderPriority,
+    status: (r.status || 'pendiente') as ReminderStatus,
+    dueDate: (r.due_date || '') as string,
+    dueTime: (r.due_time || '08:00') as string,
+    batchId: (r.batch_id || '') as string,
+    recurrence: (r.recurrence || 'unica') as ReminderRecurrence,
+    recurrenceEnd: (r.recurrence_end || '') as string,
+    completedAt: (r.completed_at || '') as string,
+    createdAt: (r.created_at || '') as string,
+    notes: (r.notes || '') as string,
+    estimatedCost: (r.estimated_cost || 0) as number,
+    assignedTo: (r.assigned_to || '') as string,
+    autoSource: (r.auto_source as string) || undefined,
+  }
+}
+
+function mapReminderToDB(r: Reminder): Record<string, unknown> {
+  return {
+    batch_id: r.batchId || null,
+    title: r.title,
+    description: r.description,
+    category: r.category,
+    priority: r.priority,
+    status: r.status,
+    due_date: r.dueDate || null,
+    due_time: r.dueTime,
+    recurrence: r.recurrence,
+    recurrence_end: r.recurrenceEnd || null,
+    completed_at: r.completedAt || null,
+    notes: r.notes,
+    estimated_cost: r.estimatedCost,
+    assigned_to: r.assignedTo,
+    auto_source: r.autoSource || null,
   }
 }
 
@@ -221,15 +247,8 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
   const today = new Date().toISOString().split('T')[0]
 
   // ---- State ----
-  const [reminders, setReminders] = useState<Reminder[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(LS_KEY)
-        if (saved) return JSON.parse(saved) as Reminder[]
-      } catch { /* ignore */ }
-    }
-    return []
-  })
+  const [reminders, setReminders] = useState<Reminder[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -256,12 +275,29 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId])
 
+  // ---- Fetch from Supabase on mount ----
+  const fetchReminders = useCallback(async () => {
+    if (!FARM_ID) return
+    try {
+      const res = await fetch(`/api/reminders?farm_id=${FARM_ID}&limit=500`)
+      if (res.ok) {
+        const data = await res.json()
+        setReminders((data.reminders || []).map(mapReminderFromDB))
+      }
+    } catch (err) {
+      console.error('Failed to fetch reminders:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchReminders()
+  }, [fetchReminders])
+
   const printRef = useRef<HTMLDivElement>(null)
 
-  // ---- Persist (localStorage + optional Supabase sync) ----
-  useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify(reminders))
-  }, [reminders])
+  // ---- No localStorage — Supabase is source of truth ----
 
   // Auto-refresh every minute
   useEffect(() => {
@@ -334,63 +370,110 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
   const openEditForm = (r: Reminder) => { setEditingId(r.id); setFormData({ ...r }); setShowForm(true); setExpandedId(null) }
   const cancelForm = () => { setShowForm(false); setEditingId(null); setFormData(createEmptyReminder()) }
 
-  const saveReminder = () => {
+  const saveReminder = async () => {
     if (!formData.title.trim() || !formData.dueDate) return
-    if (editingId) {
-      setReminders(prev => prev.map(r => r.id === editingId ? { ...formData } : r))
-    } else {
-      const newReminder: Reminder = { ...formData, id: generateId(), createdAt: new Date().toISOString() }
-      setReminders(prev => [newReminder, ...prev])
-    }
-    cancelForm()
+    if (!FARM_ID) return
+    try {
+      if (editingId) {
+        const res = await fetch(`/api/reminders/${editingId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(mapReminderToDB(formData)),
+        })
+        if (res.ok) fetchReminders()
+      } else {
+        const res = await fetch(`/api/reminders?farm_id=${FARM_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(mapReminderToDB({ ...formData, id: generateId(), createdAt: new Date().toISOString() })),
+        })
+        if (res.ok) fetchReminders()
+      }
+      cancelForm()
+    } catch { /* ignore */ }
   }
 
-  const deleteReminder = (id: string) => {
+  const deleteReminder = async (id: string) => {
     if (!confirm('¿Eliminar este recordatorio?')) return
-    setReminders(prev => prev.filter(r => r.id !== id))
-    if (editingId === id) cancelForm()
+    try {
+      const res = await fetch(`/api/reminders/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        fetchReminders()
+        if (editingId === id) cancelForm()
+      }
+    } catch { /* ignore */ }
   }
 
-  const completeReminder = (id: string) => {
-    setReminders(prev => prev.map(r => {
-      if (r.id !== id) return r
-      const completedAt = new Date().toISOString()
-      const updated = { ...r, status: 'completada' as ReminderStatus, completedAt }
-      if (r.recurrence !== 'unica') {
-        const nextDate = addRecurrenceDays(r.dueDate, r.recurrence)
-        if (!r.recurrenceEnd || nextDate <= r.recurrenceEnd) {
-          const nextReminder: Reminder = {
-            ...r, id: generateId(), dueDate: nextDate, status: 'pendiente',
+  const completeReminder = async (id: string) => {
+    if (!FARM_ID) return
+    const reminder = reminders.find(r => r.id === id)
+    if (!reminder) return
+    const completedAt = new Date().toISOString()
+    try {
+      // Update this reminder
+      await fetch(`/api/reminders/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'completada', completed_at: completedAt }),
+      })
+      // Create next if recurring
+      if (reminder.recurrence !== 'unica') {
+        const nextDate = addRecurrenceDays(reminder.dueDate, reminder.recurrence)
+        if (!reminder.recurrenceEnd || nextDate <= reminder.recurrenceEnd) {
+          const nextData = mapReminderToDB({
+            ...reminder, id: generateId(), dueDate: nextDate, status: 'pendiente',
             completedAt: '', createdAt: new Date().toISOString(),
-          }
-          setTimeout(() => { setReminders(prev2 => [nextReminder, ...prev2]) }, 0)
+          })
+          await fetch(`/api/reminders?farm_id=${FARM_ID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nextData),
+          })
         }
       }
-      return updated
-    }))
+      fetchReminders()
+    } catch { /* ignore */ }
   }
 
-  const snoozeReminder = (id: string) => {
-    setReminders(prev => prev.map(r => r.id === id ? { ...r, dueDate: addDays(r.dueDate, 1) } : r))
+  const snoozeReminder = async (id: string) => {
+    const reminder = reminders.find(r => r.id === id)
+    if (!reminder) return
+    try {
+      await fetch(`/api/reminders/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ due_date: addDays(reminder.dueDate, 1) }),
+      })
+      fetchReminders()
+    } catch { /* ignore */ }
   }
 
-  const completeAllOverdue = () => {
-    const overdueIds = reminders.filter(r => r.status === 'pendiente' && daysBetween(today, r.dueDate) < 0).map(r => r.id)
-    if (overdueIds.length === 0 || !confirm(`¿Marcar ${overdueIds.length} recordatorio(s) vencido(s) como completados?`)) return
-    setReminders(prev => prev.map(r =>
-      overdueIds.includes(r.id) ? { ...r, status: 'completada' as ReminderStatus, completedAt: new Date().toISOString() } : r
-    ))
+  const completeAllOverdue = async () => {
+    const overdue = reminders.filter(r => r.status === 'pendiente' && daysBetween(today, r.dueDate) < 0)
+    if (overdue.length === 0 || !confirm(`¿Marcar ${overdue.length} recordatorio(s) vencido(s) como completados?`)) return
+    const completedAt = new Date().toISOString()
+    for (const r of overdue) {
+      await fetch(`/api/reminders/${r.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'completada', completed_at: completedAt }),
+      }).catch(() => {})
+    }
+    fetchReminders()
   }
 
-  const clearOldCompleted = () => {
+  const clearOldCompleted = async () => {
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
     const oldIds = reminders.filter(r => {
       if (r.status !== 'completada' && r.status !== 'cancelada') return false
       if (!r.completedAt) return true
       return new Date(r.completedAt) < thirtyDaysAgo
     }).map(r => r.id)
-    if (oldIds.length === 0 || !confirm(`¿Eliminar ${oldIds.length} recordatorio(s) completados/cancelados de hace más de 30 días?`)) return
-    setReminders(prev => prev.filter(r => !oldIds.includes(r.id)))
+    if (oldIds.length === 0 || !confirm(`¿Eliminar ${oldIds.length} recordatorio(s) completados/cancelados de hace mas de 30 dias?`)) return
+    for (const id of oldIds) {
+      await fetch(`/api/reminders/${id}`, { method: 'DELETE' }).catch(() => {})
+    }
+    fetchReminders()
   }
 
   const handlePrint = () => { setPrintMode(true); setTimeout(() => { window.print(); setPrintMode(false) }, 200) }

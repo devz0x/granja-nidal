@@ -26,8 +26,8 @@ import ReportsPanel from '@/components/reports-panel'
 import RemindersPanel from '@/components/reminders-panel'
 import FarmMapView from '@/components/farm-map-view'
 import { generateRemindersForNewBatch, generatePhaseChangeReminders, generateCycleWarningReminder, clearAutoRemindersForBatch } from '@/lib/auto-reminders'
-import { getDailyEntries, deleteDailyEntry, deleteEntriesForBatch, getEntriesForBatch, getEntriesForDateRange, getWeekSummaries, getMonthSummaries } from '@/lib/history'
-import type { DailyEntry, WeekSummary, MonthSummary } from '@/lib/history'
+import type { DailyEntry } from '@/lib/history'
+import { getWeekSummaries, getMonthSummaries } from '@/lib/history'
 import type {
   PhaseKey, FarmConfig, BatchConfig, StructuralExpense, StructuralFrequency,
   MonthlyRecord,
@@ -69,13 +69,15 @@ async function syncFetchJSON(url: string): Promise<unknown> {
 // Fetch all farm data from Supabase (used on mount + periodic refresh)
 async function fetchFarmData() {
   if (!FARM_ID) return null
-  const [configRes, batchesRes, recordsRes, expensesRes] = await Promise.all([
+  const [configRes, batchesRes, recordsRes, expensesRes, dailyRes, remindersRes] = await Promise.all([
     syncFetchJSON(`/api/config?farm_id=${FARM_ID}`),
     syncFetchJSON(`/api/batches?farm_id=${FARM_ID}`),
     syncFetchJSON(`/api/monthly-records?farm_id=${FARM_ID}`),
     syncFetchJSON(`/api/structural-expenses?farm_id=${FARM_ID}`),
+    syncFetchJSON(`/api/daily-entries?farm_id=${FARM_ID}&limit=500`),
+    syncFetchJSON(`/api/reminders?farm_id=${FARM_ID}&limit=500`),
   ])
-  return { configRes, batchesRes, recordsRes, expensesRes }
+  return { configRes, batchesRes, recordsRes, expensesRes, dailyRes, remindersRes }
 }
 
 // Push config to Supabase
@@ -195,33 +197,80 @@ function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord,
 }) {
   const [historyTab, setHistoryTab] = useState<'diario' | 'semanal' | 'mensual'>('diario')
 
-  // Diario state
+  // Diario state — fetch from Supabase API
   const [dailyEntries, setDailyEntries] = useState<DailyEntry[]>([])
   const [filterBatch, setFilterBatch] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
-  // Refresh daily entries
+  // Fetch daily entries from Supabase
   useEffect(() => {
-    let entries = getDailyEntries()
-    if (filterBatch !== 'all') entries = getEntriesForBatch(entries, filterBatch)
-    if (dateFrom) entries = getEntriesForDateRange(entries, dateFrom, dateTo || '9999-12-31')
-    if (dateTo) entries = getEntriesForDateRange(entries, dateFrom || '0000-01-01', dateTo)
-    setDailyEntries(entries.sort((a, b) => b.date.localeCompare(a.date)))
-  }, [filterBatch, dateFrom, dateTo, savedRecords])
+    if (!FARM_ID) return
+    let url = `/api/daily-entries?farm_id=${FARM_ID}&limit=500`
+    if (filterBatch !== 'all') url += `&batch_id=${filterBatch}`
+    if (dateFrom) url += `&date_from=${dateFrom}`
+    if (dateTo) url += `&date_to=${dateTo}`
+    fetch(url)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.entries) return
+        const mapped = (data.entries as Record<string, unknown>[]).map(e => {
+          const entry = {
+            id: e.id as string,
+            date: (e.date || '') as string,
+            batchId: (e.batch_id || '') as string,
+            eggsCollected: (e.eggs_collected || 0) as number,
+            eggsBroken: (e.eggs_broken || 0) as number,
+            mortality: (e.mortality || 0) as number,
+            feedKg: (e.feed_kg || 0) as number,
+            waterLiters: (e.water_liters || 0) as number,
+            notes: (e.notes || '') as string,
+          }
+          const batch = batches.find(b => b.id === entry.batchId)
+          return { ...entry, batchName: batch?.name || entry.batchId }
+        })
+        setDailyEntries(mapped.sort((a, b) => b.date.localeCompare(a.date)))
+      })
+      .catch(() => {})
+  }, [filterBatch, dateFrom, dateTo, savedRecords, batches])
 
   const handleDeleteEntry = (id: string) => {
-    const updated = deleteDailyEntry(id)
-    // Re-filter after delete
-    let entries = updated
-    if (filterBatch !== 'all') entries = getEntriesForBatch(entries, filterBatch)
-    if (dateFrom) entries = getEntriesForDateRange(entries, dateFrom, dateTo || '9999-12-31')
-    if (dateTo) entries = getEntriesForDateRange(entries, dateFrom || '0000-01-01', dateTo)
-    setDailyEntries(entries.sort((a, b) => b.date.localeCompare(a.date)))
+    fetch(`/api/daily-entries/${id}`, { method: 'DELETE' })
+      .then(() => {
+        // Re-fetch to update the list
+        if (FARM_ID) {
+          let url = `/api/daily-entries?farm_id=${FARM_ID}&limit=500`
+          if (filterBatch !== 'all') url += `&batch_id=${filterBatch}`
+          if (dateFrom) url += `&date_from=${dateFrom}`
+          if (dateTo) url += `&date_to=${dateTo}`
+          fetch(url)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (!data?.entries) return
+              const mapped = (data.entries as Record<string, unknown>[]).map(e => {
+                const entry = {
+                  id: e.id as string,
+                  date: (e.date || '') as string,
+                  batchId: (e.batch_id || '') as string,
+                  eggsCollected: (e.eggs_collected || 0) as number,
+                  eggsBroken: (e.eggs_broken || 0) as number,
+                  mortality: (e.mortality || 0) as number,
+                  feedKg: (e.feed_kg || 0) as number,
+                  waterLiters: (e.water_liters || 0) as number,
+                  notes: (e.notes || '') as string,
+                }
+                const batch = batches.find(b => b.id === entry.batchId)
+                return { ...entry, batchName: batch?.name || entry.batchId }
+              })
+              setDailyEntries(mapped.sort((a, b) => b.date.localeCompare(a.date)))
+            })
+        }
+      })
+      .catch(() => {})
   }
 
-  // Semanal state
-  const allDailyEntries = useMemo(() => getDailyEntries(), [savedRecords])
+  // Semanal state — use the full dailyEntries from Supabase
+  const allDailyEntries = useMemo(() => dailyEntries, [dailyEntries])
   const weekSummaries = useMemo(() => getWeekSummaries(allDailyEntries, 8), [allDailyEntries])
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null)
 
@@ -887,7 +936,7 @@ export default function Home() {
     pushBatch(newBatch as unknown as Record<string, unknown>)
     const today = new Date().toISOString().split('T')[0]
     setTimeout(() => {
-      generateRemindersForNewBatch(newId, newName, config.hensPerBatch, today)
+      generateRemindersForNewBatch(FARM_ID, newId, newName, config.hensPerBatch, today)
     }, 100)
   }, [batches.length, config.hensPerBatch, config.baseLayingRate])
 
@@ -896,8 +945,14 @@ export default function Home() {
     // Delete from Supabase
     deleteBatchFromAPI(id)
     setTimeout(() => {
-      clearAutoRemindersForBatch(id)
-      deleteEntriesForBatch(id)
+      clearAutoRemindersForBatch(FARM_ID, id)
+      // Delete daily entries for this batch
+      fetch(`/api/daily-entries?farm_id=${FARM_ID}&batch_id=${id}`).then(r => r.json()).then(data => {
+        const entries = data.entries || []
+        for (const e of entries) {
+          fetch(`/api/daily-entries/${e.id}`, { method: 'DELETE' }).catch(() => {})
+        }
+      }).catch(() => {})
     }, 100)
     if (selectedBatchId === id) {
       setSelectedBatchId(null)
@@ -981,10 +1036,27 @@ export default function Home() {
     setLastUpdateVersion(configVersion)
   }, [config, batches, structuralExpenses, configVersion])
 
-  // Urgent reminders
+  // Urgent reminders — fetched from Supabase
   const [urgentReminderCount, setUrgentReminderCount] = useState(0)
+  const [allReminders, setAllReminders] = useState<Array<{status: string; dueDate: string; priority: string; batchId: string}>>([])
   useEffect(() => {
-    const update = () => { setUrgentReminderCount(getUrgentReminderCount()) }
+    const update = async () => {
+      if (!FARM_ID) return
+      try {
+        const res = await fetch(`/api/reminders?farm_id=${FARM_ID}&limit=500`)
+        if (res.ok) {
+          const data = await res.json()
+          const mapped = (data.reminders || []).map((r: Record<string, unknown>) => ({
+            status: (r.status || '') as string,
+            dueDate: (r.due_date || '') as string,
+            priority: (r.priority || '') as string,
+            batchId: (r.batch_id || '') as string,
+          }))
+          setAllReminders(mapped)
+          setUrgentReminderCount(getUrgentReminderCount(mapped))
+        }
+      } catch { /* ignore */ }
+    }
     update()
     const interval = setInterval(update, 120000)
     return () => clearInterval(interval)
@@ -999,12 +1071,12 @@ export default function Home() {
       if (!prevBatch) return
       if (prevBatch.phase !== batch.phase) {
         const phaseLabel = DEFAULT_FEED[batch.phase as PhaseKey]?.label || batch.phase
-        generatePhaseChangeReminders(batch.id, batch.name, batch.hens, batch.phase, phaseLabel)
+        generatePhaseChangeReminders(FARM_ID, batch.id, batch.name, batch.hens, batch.phase, phaseLabel)
       }
       if (batch.isLaying && batch.cycleMonth > 0) {
         const monthsLeft = config.layingCycleMonths - (batch.cycleMonth - 5)
         if (monthsLeft <= 3 && monthsLeft > 0) {
-          generateCycleWarningReminder(batch.id, batch.name, batch.cycleMonth, config.layingCycleMonths)
+          generateCycleWarningReminder(FARM_ID, batch.id, batch.name, batch.cycleMonth, config.layingCycleMonths)
         }
       }
     })

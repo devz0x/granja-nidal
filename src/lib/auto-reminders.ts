@@ -1,15 +1,13 @@
 // ================================================================
-// AUTO-REMINDERS - Generación automática de recordatorios
+// AUTO-REMINDERS - Generacion automatica de recordatorios
 // basada en cambios de lotes, fases de alimento, y ciclo productivo
+// Granja Nidal - Supabase API (shared data)
 // ================================================================
-// Los recordatorios automáticos se escriben directamente en localStorage
-// bajo la clave 'granja-wd80-reminders' y son leídos por RemindersPanel.
-// Se identifican con un prefijo especial en el ID: "auto-"
-
-const LS_KEY = 'granja-wd80-reminders'
+// Los recordatorios automaticos se escriben en Supabase (tabla 'reminders')
+// Se identifican con un campo 'auto_source'
 
 // ================================================================
-// TYPES (replicados para evitar dependencia circular)
+// TYPES
 // ================================================================
 type ReminderCategory = 'vacuna' | 'alimento' | 'mantenimiento' | 'pago' | 'veterinario' | 'plagas' | 'infraestructura' | 'otros'
 type ReminderPriority = 'urgente' | 'alta' | 'media' | 'baja'
@@ -33,8 +31,7 @@ interface AutoReminder {
   notes: string
   estimatedCost: number
   assignedTo: string
-  // Flag para identificar auto-generados
-  autoSource: string  // ej: 'batch-created', 'phase-change', 'cycle-warning'
+  autoSource: string
 }
 
 // ================================================================
@@ -54,21 +51,83 @@ function addWeeks(dateStr: string, weeks: number): string {
   return addDays(dateStr, weeks * 7)
 }
 
-function getExistingReminders(): AutoReminder[] {
+// Fetch existing reminders from Supabase API
+async function fetchReminders(farmId: string, batchId?: string): Promise<AutoReminder[]> {
   try {
-    const saved = localStorage.getItem(LS_KEY)
-    if (saved) return JSON.parse(saved) as AutoReminder[]
-  } catch { /* ignore */ }
-  return []
+    let url = `/api/reminders?farm_id=${farmId}`
+    if (batchId) url += `&batch_id=${batchId}`
+    const res = await fetch(url)
+    if (!res.ok) return []
+    const data = await res.json()
+    const raw = data.reminders || []
+    return raw.map((r: Record<string, unknown>) => ({
+      id: r.id as string,
+      title: r.title as string,
+      description: (r.description || '') as string,
+      category: (r.category || 'otros') as ReminderCategory,
+      priority: (r.priority || 'media') as ReminderPriority,
+      status: (r.status || 'pendiente') as ReminderStatus,
+      dueDate: (r.due_date || '') as string,
+      dueTime: (r.due_time || '08:00') as string,
+      batchId: (r.batch_id || '') as string,
+      recurrence: (r.recurrence || 'unica') as ReminderRecurrence,
+      recurrenceEnd: (r.recurrence_end || '') as string,
+      completedAt: (r.completed_at || '') as string,
+      createdAt: (r.created_at || '') as string,
+      notes: (r.notes || '') as string,
+      estimatedCost: (r.estimated_cost || 0) as number,
+      assignedTo: (r.assigned_to || '') as string,
+      autoSource: (r.auto_source || '') as string,
+    }))
+  } catch {
+    return []
+  }
 }
 
-function saveReminders(reminders: AutoReminder[]): void {
-  localStorage.setItem(LS_KEY, JSON.stringify(reminders))
+// Insert new reminders to Supabase API
+async function insertReminders(farmId: string, reminders: AutoReminder[]): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/reminders?farm_id=${farmId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reminders: reminders.map(r => ({
+          batch_id: r.batchId || null,
+          title: r.title,
+          description: r.description,
+          category: r.category,
+          priority: r.priority,
+          status: r.status,
+          due_date: r.dueDate || null,
+          due_time: r.dueTime,
+          recurrence: r.recurrence,
+          recurrence_end: r.recurrenceEnd || null,
+          completed_at: r.completedAt || null,
+          notes: r.notes,
+          estimated_cost: r.estimatedCost,
+          assigned_to: r.assignedTo,
+          auto_source: r.autoSource,
+        })),
+      }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+// Delete a single reminder from Supabase
+async function deleteReminderFromAPI(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/reminders/${id}`, { method: 'DELETE' })
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 /**
- * Verifica si ya existe un recordatorio auto-generado con el mismo
- * autoSource, batchId y title para evitar duplicados.
+ * Check if an auto-generated reminder already exists.
  */
 function existsAutoReminder(reminders: AutoReminder[], batchId: string, autoSource: string, titleFragment: string): boolean {
   return reminders.some(r =>
@@ -113,34 +172,35 @@ interface FeedPhaseTransition {
 }
 
 const FEED_PHASE_TRANSITIONS: FeedPhaseTransition[] = [
-  { phase: 'inicio', phaseLabel: 'Inicio', monthStart: 1, estimatedCostNote: '~28g/ave/día, 5-10 semanas' },
-  { phase: 'crecimiento', phaseLabel: 'Crecimiento', monthStart: 2.5, estimatedCostNote: '~58g/ave/día, 11-15 semanas' },
-  { phase: 'pre_postura', phaseLabel: 'Pre-Postura', monthStart: 4, estimatedCostNote: '~85g/ave/día, 16-18 semanas' },
-  { phase: 'postura', phaseLabel: 'Postura', monthStart: 4.5, estimatedCostNote: '~115g/ave/día, 18+ semanas' },
+  { phase: 'inicio', phaseLabel: 'Inicio', monthStart: 1, estimatedCostNote: '~28g/ave/dia, 5-10 semanas' },
+  { phase: 'crecimiento', phaseLabel: 'Crecimiento', monthStart: 2.5, estimatedCostNote: '~58g/ave/dia, 11-15 semanas' },
+  { phase: 'pre_postura', phaseLabel: 'Pre-Postura', monthStart: 4, estimatedCostNote: '~85g/ave/dia, 16-18 semanas' },
+  { phase: 'postura', phaseLabel: 'Postura', monthStart: 4.5, estimatedCostNote: '~115g/ave/dia, 18+ semanas' },
 ]
 
 // ================================================================
-// PUBLIC FUNCTIONS
+// PUBLIC FUNCTIONS (async, Supabase API)
 // ================================================================
 
 /**
- * Genera todos los recordatorios automáticos al crear un nuevo lote.
- * Incluye: plan de vacunación completo + transiciones de alimento + hitos.
+ * Genera todos los recordatorios automaticos al crear un nuevo lote.
+ * Incluye: plan de vacunacion completo + transiciones de alimento + hitos.
  */
-export function generateRemindersForNewBatch(
+export async function generateRemindersForNewBatch(
+  farmId: string,
   batchId: string,
   batchName: string,
   hens: number,
-  startDate: string // YYYY-MM-DD, fecha de inicio del lote (llegada pollitas)
-): number {
-  const reminders = getExistingReminders()
-  let addedCount = 0
+  startDate: string
+): Promise<number> {
+  const existing = await fetchReminders(farmId, batchId)
+  const newReminders: AutoReminder[] = []
 
-  // 1. Recordatorio de vacunación (plan completo WD80)
+  // 1. Vacunacion (plan completo WD80)
   WD80_VACCINE_SCHEDULE.forEach(vac => {
-    if (existsAutoReminder(reminders, batchId, 'batch-created', vac.name)) return
+    if (existsAutoReminder(existing, batchId, 'batch-created', vac.name)) return
     const dueDate = addWeeks(startDate, vac.ageWeeks)
-    reminders.push({
+    newReminders.push({
       id: generateId(),
       title: `Vacuna: ${vac.name}`,
       description: `Aplicar ${vac.name} al lote ${batchName} (${hens} aves). Via: ${vac.via}. ${vac.notes}`,
@@ -159,42 +219,40 @@ export function generateRemindersForNewBatch(
       assignedTo: '',
       autoSource: 'batch-created',
     })
-    addedCount++
   })
 
   // 2. Transiciones de alimento por fase
   FEED_PHASE_TRANSITIONS.forEach(fp => {
-    if (existsAutoReminder(reminders, batchId, 'phase-change', fp.phaseLabel)) return
+    if (existsAutoReminder(existing, batchId, 'phase-change', fp.phaseLabel)) return
     const dueDate = addDays(startDate, Math.round(fp.monthStart * 30))
-    reminders.push({
+    newReminders.push({
       id: generateId(),
       title: `Comprar alimento: ${fp.phaseLabel}`,
-      description: `El lote ${batchName} (${hens} aves) entrará a fase ${fp.phaseLabel} aproximadamente. Asegurar stock suficiente de alimento. ${fp.estimatedCostNote}`,
+      description: `El lote ${batchName} (${hens} aves) entrara a fase ${fp.phaseLabel} aproximadamente. Asegurar stock suficiente de alimento. ${fp.estimatedCostNote}`,
       category: 'alimento',
       priority: fp.phase === 'postura' ? 'alta' : 'media',
       status: 'pendiente',
-      dueDate: addDays(dueDate, -7), // Recordar 7 días antes
+      dueDate: addDays(dueDate, -7),
       dueTime: '08:00',
       batchId,
       recurrence: 'unica',
       recurrenceEnd: '',
       completedAt: '',
       createdAt: new Date().toISOString(),
-      notes: `Auto-generado: Transición a fase ${fp.phaseLabel} a los ${fp.monthStart} meses. ${fp.estimatedCostNote}. Comprar alimento con al menos 7 días de anticipación.`,
+      notes: `Auto-generado: Transicion a fase ${fp.phaseLabel} a los ${fp.monthStart} meses. ${fp.estimatedCostNote}. Comprar alimento con al menos 7 dias de anticipacion.`,
       estimatedCost: 0,
       assignedTo: '',
       autoSource: 'phase-change',
     })
-    addedCount++
   })
 
   // 3. Hito: Inicio de postura (semana 18-20)
   const posturaDate = addWeeks(startDate, 18)
-  if (!existsAutoReminder(reminders, batchId, 'batch-milestone', 'Inicio de postura')) {
-    reminders.push({
+  if (!existsAutoReminder(existing, batchId, 'batch-milestone', 'Inicio de postura')) {
+    newReminders.push({
       id: generateId(),
       title: `Milestone: Inicio de postura - ${batchName}`,
-      description: `El lote ${batchName} debería comenzar producción de huevos. Verificar porcentaje de postura, ajustar alimento y comenzar registro diario de producción.`,
+      description: `El lote ${batchName} deberia comenzar produccion de huevos. Verificar porcentaje de postura, ajustar alimento y comenzar registro diario de produccion.`,
       category: 'otros',
       priority: 'alta',
       status: 'pendiente',
@@ -210,16 +268,15 @@ export function generateRemindersForNewBatch(
       assignedTo: '',
       autoSource: 'batch-milestone',
     })
-    addedCount++
   }
 
   // 4. Hito: Pico de postura (semana 25-28)
   const picoDate = addWeeks(startDate, 25)
-  if (!existsAutoReminder(reminders, batchId, 'batch-milestone', 'Pico de postura')) {
-    reminders.push({
+  if (!existsAutoReminder(existing, batchId, 'batch-milestone', 'Pico de postura')) {
+    newReminders.push({
       id: generateId(),
       title: `Milestone: Pico de postura esperado - ${batchName}`,
-      description: `El lote ${batchName} debería alcanzar su pico de postura (~80-85%). Es el momento de máxima producción. Asegurar alimentación óptima y monitorear calidad de huevo.`,
+      description: `El lote ${batchName} deberia alcanzar su pico de postura (~80-85%). Es el momento de maxima produccion. Asegurar alimentacion optima y monitorear calidad de huevo.`,
       category: 'otros',
       priority: 'media',
       status: 'pendiente',
@@ -230,44 +287,42 @@ export function generateRemindersForNewBatch(
       recurrenceEnd: '',
       completedAt: '',
       createdAt: new Date().toISOString(),
-      notes: 'Auto-generado: Pico de producción esperado semanas 25-28. Máxima rentabilidad del lote.',
+      notes: 'Auto-generado: Pico de produccion esperado semanas 25-28. Maxima rentabilidad del lote.',
       estimatedCost: 0,
       assignedTo: '',
       autoSource: 'batch-milestone',
     })
-    addedCount++
   }
 
-  // 5. Mantenimiento inicial: Acondicionamiento de galpon (día 0)
-  if (!existsAutoReminder(reminders, batchId, 'batch-created', 'Acondicionamiento')) {
-    reminders.push({
+  // 5. Mantenimiento inicial: Acondicionamiento de galpon (dia 0)
+  if (!existsAutoReminder(existing, batchId, 'batch-created', 'Acondicionamiento')) {
+    newReminders.push({
       id: generateId(),
       title: `Preparar galpon para ${batchName}`,
-      description: `Antes de recibir las ${hens} pollitas, asegurar: limpieza profunda, desinfección, bebederos/comederos operativos, temperatura adecuada (32-35°C), cama limpia, iluminación.`,
+      description: `Antes de recibir las ${hens} pollitas, asegurar: limpieza profunda, desinfeccion, bebederos/comederos operativos, temperatura adecuada (32-35C), cama limpia, iluminacion.`,
       category: 'mantenimiento',
       priority: 'urgente',
       status: 'pendiente',
-      dueDate: addDays(startDate, -3), // 3 días antes de llegada
+      dueDate: addDays(startDate, -3),
       dueTime: '08:00',
       batchId,
       recurrence: 'unica',
       recurrenceEnd: '',
       completedAt: '',
       createdAt: new Date().toISOString(),
-      notes: 'Auto-generado: Preparación previa a la recepción del nuevo lote. Checklist de acondicionamiento.',
+      notes: 'Auto-generado: Preparacion previa a la recepcion del nuevo lote. Checklist de acondicionamiento.',
       estimatedCost: 5000,
       assignedTo: '',
       autoSource: 'batch-created',
     })
-    addedCount++
   }
 
   // 6. Visita veterinaria inicial (semana 1)
-  if (!existsAutoReminder(reminders, batchId, 'batch-created', 'Visita veterinaria')) {
-    reminders.push({
+  if (!existsAutoReminder(existing, batchId, 'batch-created', 'Visita veterinaria')) {
+    newReminders.push({
       id: generateId(),
-      title: `Visita veterinaria: Revisión inicial ${batchName}`,
-      description: `Revisión general del lote ${batchName} durante la primera semana. Evaluar salud, comportamiento, consumo de alimento y agua. Establecer plan sanitario.`,
+      title: `Visita veterinaria: Revision inicial ${batchName}`,
+      description: `Revision general del lote ${batchName} durante la primera semana. Evaluar salud, comportamiento, consumo de alimento y agua. Establecer plan sanitario.`,
       category: 'veterinario',
       priority: 'alta',
       status: 'pendiente',
@@ -278,22 +333,21 @@ export function generateRemindersForNewBatch(
       recurrenceEnd: '',
       completedAt: '',
       createdAt: new Date().toISOString(),
-      notes: 'Auto-generado: Primera revisión veterinaria del ciclo. Fundamental para detección temprana de problemas.',
+      notes: 'Auto-generado: Primera revision veterinaria del ciclo. Fundamental para deteccion temprana de problemas.',
       estimatedCost: 3000,
       assignedTo: '',
       autoSource: 'batch-created',
     })
-    addedCount++
   }
 
   // 7. Control de plagas preventivo (mensual, primeros 3 meses)
   for (let m = 1; m <= 3; m++) {
     const pestDate = addDays(startDate, m * 30)
-    if (!existsAutoReminder(reminders, batchId, 'pest-control', `Control plagas mes ${m}`)) {
-      reminders.push({
+    if (!existsAutoReminder(existing, batchId, 'pest-control', `Control plagas mes ${m}`)) {
+      newReminders.push({
         id: generateId(),
         title: `Control de plagas - ${batchName} (mes ${m})`,
-        description: `Aplicación preventiva de desinfectante y control de plagas en el galpon del lote ${batchName}. Mes ${m} de crianza.`,
+        description: `Aplicacion preventiva de desinfectante y control de plagas en el galpon del lote ${batchName}. Mes ${m} de crianza.`,
         category: 'plagas',
         priority: 'media',
         status: 'pendiente',
@@ -304,22 +358,21 @@ export function generateRemindersForNewBatch(
         recurrenceEnd: '',
         completedAt: '',
         createdAt: new Date().toISOString(),
-        notes: `Auto-generado: Control de plagas mensual preventivo. Mes ${m} de ${3}.`,
+        notes: `Auto-generado: Control de plagas mensual preventivo. Mes ${m} de 3.`,
         estimatedCost: 2500,
         assignedTo: '',
         autoSource: 'pest-control',
       })
-      addedCount++
     }
   }
 
   // 8. Alerta de fin de ciclo (20 meses = ~87 semanas)
-  const cycleEnd = addWeeks(startDate, 80) // Avisar 7 semanas antes del fin (semana 80 de 87)
-  if (!existsAutoReminder(reminders, batchId, 'cycle-warning', 'Fin de ciclo')) {
-    reminders.push({
+  const cycleEnd = addWeeks(startDate, 80)
+  if (!existsAutoReminder(existing, batchId, 'cycle-warning', 'Fin de ciclo')) {
+    newReminders.push({
       id: generateId(),
-      title: `Fin de ciclo próximo - ${batchName}`,
-      description: `El lote ${batchName} está por completar su ciclo productivo de 20 meses. Planificar: disposición de gallinas de desecho, limpieza de galpon, y recepción de nuevo lote.`,
+      title: `Fin de ciclo proximo - ${batchName}`,
+      description: `El lote ${batchName} esta por completar su ciclo productivo de 20 meses. Planificar: disposicion de gallinas de desecho, limpieza de galpon, y recepcion de nuevo lote.`,
       category: 'otros',
       priority: 'alta',
       status: 'pendiente',
@@ -335,35 +388,33 @@ export function generateRemindersForNewBatch(
       assignedTo: '',
       autoSource: 'cycle-warning',
     })
-    addedCount++
   }
 
-  if (addedCount > 0) {
-    saveReminders(reminders)
+  if (newReminders.length > 0) {
+    await insertReminders(farmId, newReminders)
   }
 
-  return addedCount
+  return newReminders.length
 }
 
 /**
  * Genera recordatorios cuando un lote cambia de fase de alimento.
- * Se llama al detectar un cambio de fase en updateBatch.
  */
-export function generatePhaseChangeReminders(
+export async function generatePhaseChangeReminders(
+  farmId: string,
   batchId: string,
   batchName: string,
   hens: number,
   newPhase: string,
   newPhaseLabel: string
-): number {
-  const reminders = getExistingReminders()
-  let addedCount = 0
+): Promise<number> {
+  const existing = await fetchReminders(farmId, batchId)
+  const newReminders: AutoReminder[] = []
 
-  // Recordatorio de compra de alimento para la nueva fase
-  if (!existsAutoReminder(reminders, batchId, 'phase-transition', newPhaseLabel)) {
+  if (!existsAutoReminder(existing, batchId, 'phase-transition', newPhaseLabel)) {
     const transition = FEED_PHASE_TRANSITIONS.find(fp => fp.phase === newPhase)
     const costNote = transition?.estimatedCostNote || ''
-    reminders.push({
+    newReminders.push({
       id: generateId(),
       title: `Cambio de fase: ${newPhaseLabel} - ${batchName}`,
       description: `El lote ${batchName} (${hens} aves) ha cambiado a fase ${newPhaseLabel}. Verificar stock de alimento adecuado. ${costNote}`,
@@ -377,21 +428,19 @@ export function generatePhaseChangeReminders(
       recurrenceEnd: '',
       completedAt: '',
       createdAt: new Date().toISOString(),
-      notes: `Auto-generado: Detección de cambio de fase a ${newPhaseLabel}. ${costNote}`,
+      notes: `Auto-generado: Deteccion de cambio de fase a ${newPhaseLabel}. ${costNote}`,
       estimatedCost: 0,
       assignedTo: '',
       autoSource: 'phase-transition',
     })
-    addedCount++
   }
 
-  // Si entra a postura, recordatorio especial
   if (newPhase === 'postura') {
-    if (!existsAutoReminder(reminders, batchId, 'phase-transition', 'Registro producción')) {
-      reminders.push({
+    if (!existsAutoReminder(existing, batchId, 'phase-transition', 'Registro produccion')) {
+      newReminders.push({
         id: generateId(),
-        title: `Iniciar registro diario de producción - ${batchName}`,
-        description: `El lote ${batchName} ha entrado a postura. Comenzar a registrar producción diaria de huevos en la sección Operaciones.`,
+        title: `Iniciar registro diario de produccion - ${batchName}`,
+        description: `El lote ${batchName} ha entrado a postura. Comenzar a registrar produccion diaria de huevos en la seccion Operaciones.`,
         category: 'otros',
         priority: 'alta',
         status: 'pendiente',
@@ -402,40 +451,39 @@ export function generatePhaseChangeReminders(
         recurrenceEnd: '',
         completedAt: '',
         createdAt: new Date().toISOString(),
-        notes: 'Auto-generado: Las aves entraron a fase de postura. Es momento de registrar producción.',
+        notes: 'Auto-generado: Las aves entraron a fase de postura. Es momento de registrar produccion.',
         estimatedCost: 0,
         assignedTo: '',
         autoSource: 'phase-transition',
       })
-      addedCount++
     }
   }
 
-  if (addedCount > 0) {
-    saveReminders(reminders)
+  if (newReminders.length > 0) {
+    await insertReminders(farmId, newReminders)
   }
 
-  return addedCount
+  return newReminders.length
 }
 
 /**
  * Genera alerta cuando un lote se acerca al fin del ciclo productivo.
  */
-export function generateCycleWarningReminder(
+export async function generateCycleWarningReminder(
+  farmId: string,
   batchId: string,
   batchName: string,
   cycleMonth: number,
   maxCycleMonths: number
-): number {
-  const reminders = getExistingReminders()
-  let addedCount = 0
+): Promise<number> {
+  const existing = await fetchReminders(farmId, batchId)
+  const newReminders: AutoReminder[] = []
 
   const monthsLeft = maxCycleMonths - cycleMonth
 
-  // Alerta a 3 meses del fin
   if (monthsLeft <= 3 && monthsLeft > 1) {
-    if (!existsAutoReminder(reminders, batchId, 'cycle-warning', `${monthsLeft} meses restantes`)) {
-      reminders.push({
+    if (!existsAutoReminder(existing, batchId, 'cycle-warning', `${monthsLeft} meses restantes`)) {
+      newReminders.push({
         id: generateId(),
         title: `Fin de ciclo: ${monthsLeft} mes${monthsLeft !== 1 ? 'es' : ''} restante${monthsLeft !== 1 ? 's' : ''} - ${batchName}`,
         description: `El lote ${batchName} tiene ${monthsLeft} mes${monthsLeft !== 1 ? 'es' : ''} de ciclo productivo restante${monthsLeft !== 1 ? 's' : ''} (mes ${cycleMonth} de ${maxCycleMonths}). Planificar el reemplazo: ordenar pollitas, preparar galpon, programar desecho.`,
@@ -449,22 +497,20 @@ export function generateCycleWarningReminder(
         recurrenceEnd: '',
         completedAt: '',
         createdAt: new Date().toISOString(),
-        notes: `Auto-generado: Ciclo productivo en mes ${cycleMonth} de ${maxCycleMonths}. Quedan ${monthsLeft} meses. Iniciar planificación de reemplazo.`,
+        notes: `Auto-generado: Ciclo productivo en mes ${cycleMonth} de ${maxCycleMonths}. Quedan ${monthsLeft} meses. Iniciar planificacion de reemplazo.`,
         estimatedCost: 0,
         assignedTo: '',
         autoSource: 'cycle-warning',
       })
-      addedCount++
     }
   }
 
-  // Alerta crítica: último mes
   if (monthsLeft <= 1 && monthsLeft > 0) {
-    if (!existsAutoReminder(reminders, batchId, 'cycle-warning', 'ULTIMO MES')) {
-      reminders.push({
+    if (!existsAutoReminder(existing, batchId, 'cycle-warning', 'ULTIMO MES')) {
+      newReminders.push({
         id: generateId(),
         title: `ULTIMO MES: Preparar desecho de ${batchName}`,
-        description: `El lote ${batchName} está en su ultimo mes de ciclo. Acciones inmediatas: contactar comprador de gallinas de desecho, planificar limpieza profunda del galpon, ordenar nuevo lote de pollitas.`,
+        description: `El lote ${batchName} esta en su ultimo mes de ciclo. Acciones inmediatas: contactar comprador de gallinas de desecho, planificar limpieza profunda del galpon, ordenar nuevo lote de pollitas.`,
         category: 'otros',
         priority: 'urgente',
         status: 'pendiente',
@@ -475,41 +521,43 @@ export function generateCycleWarningReminder(
         recurrenceEnd: '',
         completedAt: '',
         createdAt: new Date().toISOString(),
-        notes: `Auto-generado: ALERTA CRITICA - Ultimo mes de ciclo del lote ${batchName}. Se requiere acción inmediata para planificar el reemplazo.`,
+        notes: `Auto-generado: ALERTA CRITICA - Ultimo mes de ciclo del lote ${batchName}. Se requiere accion inmediata para planificar el reemplazo.`,
         estimatedCost: 0,
         assignedTo: '',
         autoSource: 'cycle-warning',
       })
-      addedCount++
     }
   }
 
-  if (addedCount > 0) {
-    saveReminders(reminders)
+  if (newReminders.length > 0) {
+    await insertReminders(farmId, newReminders)
   }
 
-  return addedCount
+  return newReminders.length
 }
 
 /**
  * Elimina TODOS los recordatorios asociados a un lote (auto-generados y manuales).
- * Se llama al borrar un lote para que sus alertas desaparezcan.
  */
-export function clearAutoRemindersForBatch(batchId: string): number {
-  const reminders = getExistingReminders()
-  const before = reminders.length
-  const filtered = reminders.filter(r => r.batchId !== batchId)
-  if (filtered.length < before) {
-    saveReminders(filtered)
+export async function clearAutoRemindersForBatch(
+  farmId: string,
+  batchId: string
+): Promise<number> {
+  const reminders = await fetchReminders(farmId, batchId)
+  let deleted = 0
+  for (const r of reminders) {
+    if (await deleteReminderFromAPI(r.id)) {
+      deleted++
+    }
   }
-  return before - filtered.length
+  return deleted
 }
 
 /**
  * Retorna el conteo de recordatorios auto-generados por fuente.
  */
-export function getAutoReminderStats(): Record<string, number> {
-  const reminders = getExistingReminders()
+export async function getAutoReminderStats(farmId: string): Promise<Record<string, number>> {
+  const reminders = await fetchReminders(farmId)
   const stats: Record<string, number> = {}
   reminders.forEach(r => {
     if (r.autoSource) {

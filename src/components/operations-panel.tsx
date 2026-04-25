@@ -15,6 +15,7 @@ import {
   Droplets, TrendingDown, Egg, Wheat, ClipboardCheck, AlertTriangle, CheckCircle2, Info, Plus, Trash2,
   Edit3, Save, X, Syringe, Heart, Calendar, Shield, Clipboard, ChevronDown, ChevronUp,
 } from 'lucide-react'
+import { getFarmId } from '@/lib/supabase'
 
 // ================================================================
 // TYPES
@@ -60,11 +61,53 @@ interface FeedInventory {
 }
 
 // ================================================================
-// LOCAL STORAGE KEYS
+// SUPABASE MAPPING HELPERS
 // ================================================================
-const LS_VACCINATIONS = 'granja-wd80-vaccinations'
-const LS_FEED_INVENTORY = 'granja-wd80-feed-inventory'
-const LS_DAILY_ENTRIES = 'granja-wd80-daily-entries'
+function mapDailyEntryFromDB(r: Record<string, unknown>): DailyProductionEntry {
+  return {
+    id: r.id as string,
+    date: (r.date || '') as string,
+    batchId: (r.batch_id || '') as string,
+    eggsCollected: (r.eggs_collected || 0) as number,
+    eggsBroken: (r.eggs_broken || 0) as number,
+    mortality: (r.mortality || 0) as number,
+    feedKg: (r.feed_kg || 0) as number,
+    waterLiters: (r.water_liters || 0) as number,
+    notes: (r.notes || '') as string,
+  }
+}
+
+function mapVaccinationFromDB(r: Record<string, unknown>): VaccinationRecord {
+  return {
+    id: r.id as string,
+    batchId: (r.batch_id || '') as string,
+    shedId: (r.shed_id || '') as string,
+    cycleNumber: (r.cycle_number || 1) as number,
+    vaccineName: (r.vaccine_name || '') as string,
+    dateApplied: (r.date_applied || '') as string,
+    ageWeeks: (r.age_weeks || 0) as number,
+    nextDose: (r.next_dose || '') as string,
+    appliedBy: (r.applied_by || '') as string,
+    via: (r.via || 'Ocular') as string,
+    dosage: (r.dosage || '') as string,
+    lotNumber: (r.lot_number || '') as string,
+    status: (r.status || 'programada') as 'aplicada' | 'programada' | 'vencida',
+    notes: (r.notes || '') as string,
+  }
+}
+
+function mapFeedInventoryFromDB(r: Record<string, unknown>, configFeedPhases: Record<string, { price: number }>): FeedInventory {
+  return {
+    id: r.id as string,
+    phaseKey: (r.phase_key || '') as string,
+    phase: (r.phase || '') as string,
+    currentStockKg: (r.current_stock_kg || 0) as number,
+    reorderLevelKg: (r.reorder_level_kg || 0) as number,
+    lastPurchase: (r.last_purchase || '') as string,
+    supplier: (r.supplier || '') as string,
+    pricePerQuintal: (r.price_per_quintal || configFeedPhases[(r.phase_key as string) || 'postura']?.price || 0) as number,
+  }
+}
 
 // ================================================================
 // OPERATIONS COMPONENT
@@ -78,12 +121,9 @@ interface OperationsProps {
   }
   fmtRD: (v: number) => string
   fmtNum: (v: number) => string
-  batchId?: string | null  // Optional filter to show data for a specific batch only
+  batchId?: string | null
 }
 
-// ================================================================
-// ALL 5 FEED PHASES (matches config)
-// ================================================================
 const ALL_FEED_PHASES = [
   { key: 'pre_inicio', label: 'Pre-Inicio', defaultStock: 300, defaultReorder: 200 },
   { key: 'inicio', label: 'Inicio', defaultStock: 500, defaultReorder: 300 },
@@ -92,9 +132,6 @@ const ALL_FEED_PHASES = [
   { key: 'postura', label: 'Postura', defaultStock: 5000, defaultReorder: 2000 },
 ]
 
-// ================================================================
-// DEFAULT VACCINATION SCHEDULE (template per batch)
-// ================================================================
 function getDefaultVaccineSchedule(batchId: string, shedId: string, cycleNumber: number): VaccinationRecord[] {
   return [
     { id: `${batchId}-vac-1`, batchId, shedId, cycleNumber, vaccineName: 'Newcastle (B1)', dateApplied: '', ageWeeks: 1, nextDose: '', appliedBy: '', via: 'Ocular', dosage: '1 gota', lotNumber: '', status: 'programada', notes: 'Primera dosis Newcastle' },
@@ -109,70 +146,18 @@ function getDefaultVaccineSchedule(batchId: string, shedId: string, cycleNumber:
   ]
 }
 
-export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchId }: OperationsProps) {
+export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchId: propBatchId }: OperationsProps) {
   const today = new Date().toISOString().split('T')[0]
+  const farmId = getFarmId()
+  const [loading, setLoading] = useState(true)
 
   // --- State ---
-  const [dailyEntries, setDailyEntries] = useState<DailyProductionEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(LS_DAILY_ENTRIES)
-      if (saved) {
-        try { return JSON.parse(saved) } catch { /* ignore */ }
-      }
-    }
-    return []
-  })
+  const [dailyEntries, setDailyEntries] = useState<DailyProductionEntry[]>([])
   const [newEntry, setNewEntry] = useState<Partial<DailyProductionEntry>>({})
 
-  // Feed inventory: load from localStorage, ensuring all 5 phases exist
-  const [feedInventory, setFeedInventory] = useState<FeedInventory[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(LS_FEED_INVENTORY)
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved) as FeedInventory[]
-          // Ensure all 5 phases exist - merge with defaults
-          const merged = ALL_FEED_PHASES.map(phase => {
-            const existing = parsed.find(fi => fi.phaseKey === phase.key)
-            if (existing) return { ...existing, phase: phase.label, phaseKey: phase.key }
-            return {
-              id: `fi-${phase.key}`,
-              phaseKey: phase.key,
-              phase: phase.label,
-              currentStockKg: phase.defaultStock,
-              reorderLevelKg: phase.defaultReorder,
-              lastPurchase: '',
-              supplier: 'Nutriovo Sanut',
-              pricePerQuintal: config.feedPhases[phase.key]?.price || 0,
-            }
-          })
-          return merged
-        } catch { /* ignore */ }
-      }
-    }
-    return ALL_FEED_PHASES.map(phase => ({
-      id: `fi-${phase.key}`,
-      phaseKey: phase.key,
-      phase: phase.label,
-      currentStockKg: phase.defaultStock,
-      reorderLevelKg: phase.defaultReorder,
-      lastPurchase: '',
-      supplier: 'Nutriovo Sanut',
-      pricePerQuintal: config.feedPhases[phase.key]?.price || 0,
-    }))
-  })
+  const [feedInventory, setFeedInventory] = useState<FeedInventory[]>([])
 
-  // Vaccination records: load from localStorage or create default per batch
-  const [vaccinationRecords, setVaccinationRecords] = useState<VaccinationRecord[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(LS_VACCINATIONS)
-      if (saved) {
-        try { return JSON.parse(saved) } catch { /* ignore */ }
-      }
-    }
-    // Create default schedule for first batch only
-    return getDefaultVaccineSchedule('batch-0', 'Galpon 1', 1)
-  })
+  const [vaccinationRecords, setVaccinationRecords] = useState<VaccinationRecord[]>([])
 
   // Vaccination UI state
   const [editingVaccine, setEditingVaccine] = useState<string | null>(null)
@@ -182,26 +167,72 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
   const [vaccineFilterShed, setVaccineFilterShed] = useState<string>('all')
   const [showVaccineForm, setShowVaccineForm] = useState(false)
   const [newVaccine, setNewVaccine] = useState<Partial<VaccinationRecord>>({
-    status: 'programada',
-    via: 'Ocular',
-    dosage: '',
-    lotNumber: '',
-    cycleNumber: 1,
-    shedId: '',
+    status: 'programada', via: 'Ocular', dosage: '', lotNumber: '', cycleNumber: 1, shedId: '',
   })
 
-  // Persist to localStorage
-  useEffect(() => {
-    localStorage.setItem(LS_DAILY_ENTRIES, JSON.stringify(dailyEntries))
-  }, [dailyEntries])
+  // ================================================================
+  // FETCH FROM SUPABASE
+  // ================================================================
+  const fetchAllData = useCallback(async () => {
+    if (!farmId) return
+    try {
+      const filterBatch = propBatchId || undefined
+      const [dailyUrl, vacUrl] = [
+        `/api/daily-entries?farm_id=${farmId}&limit=500${filterBatch ? `&batch_id=${filterBatch}` : ''}`,
+        `/api/vaccinations?farm_id=${farmId}${filterBatch ? `&batch_id=${filterBatch}` : ''}`,
+      ]
+      const [dailyRes, vacRes, feedRes] = await Promise.all([
+        fetch(dailyUrl).then(r => r.ok ? r.json() : null),
+        fetch(vacUrl).then(r => r.ok ? r.json() : null),
+        fetch(`/api/feed-inventory?farm_id=${farmId}`).then(r => r.ok ? r.json() : null),
+      ])
+
+      if (dailyRes?.entries) {
+        const mapped = dailyRes.entries.map((e: Record<string, unknown>) => {
+          const entry = mapDailyEntryFromDB(e)
+          const batch = batches.find(b => b.id === entry.batchId)
+          return { ...entry, batchId: entry.batchId, notes: entry.notes }
+        })
+        setDailyEntries(mapped)
+      }
+
+      if (vacRes?.vaccinations) {
+        setVaccinationRecords(vacRes.vaccinations.map((v: Record<string, unknown>) => mapVaccinationFromDB(v)))
+      }
+
+      if (feedRes?.inventory) {
+        const mapped = feedRes.inventory.map((f: Record<string, unknown>) => mapFeedInventoryFromDB(f, config.feedPhases))
+        // Ensure all 5 phases exist
+        const merged = ALL_FEED_PHASES.map(phase => {
+          const existing = mapped.find(fi => fi.phaseKey === phase.key)
+          if (existing) return { ...existing, phase: phase.label, phaseKey: phase.key }
+          return {
+            id: `fi-${phase.key}`, phaseKey: phase.key, phase: phase.label,
+            currentStockKg: phase.defaultStock, reorderLevelKg: phase.defaultReorder,
+            lastPurchase: '', supplier: 'Nutriovo Sanut',
+            pricePerQuintal: config.feedPhases[phase.key]?.price || 0,
+          }
+        })
+        setFeedInventory(merged)
+      } else {
+        // No data in DB yet — use defaults
+        setFeedInventory(ALL_FEED_PHASES.map(phase => ({
+          id: `fi-${phase.key}`, phaseKey: phase.key, phase: phase.label,
+          currentStockKg: phase.defaultStock, reorderLevelKg: phase.defaultReorder,
+          lastPurchase: '', supplier: 'Nutriovo Sanut',
+          pricePerQuintal: config.feedPhases[phase.key]?.price || 0,
+        })))
+      }
+    } catch (err) {
+      console.error('Failed to fetch operations data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [farmId, propBatchId, batches, config.feedPhases])
 
   useEffect(() => {
-    localStorage.setItem(LS_FEED_INVENTORY, JSON.stringify(feedInventory))
-  }, [feedInventory])
-
-  useEffect(() => {
-    localStorage.setItem(LS_VACCINATIONS, JSON.stringify(vaccinationRecords))
-  }, [vaccinationRecords])
+    fetchAllData()
+  }, [fetchAllData])
 
   // Auto-update feed inventory prices from config
   useEffect(() => {
@@ -239,10 +270,6 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
   const vacStats = useMemo(() => {
     const applied = vaccinationRecords.filter(v => v.status === 'aplicada').length
     const programmed = vaccinationRecords.filter(v => v.status === 'programada').length
-    const overdue = vaccinationRecords.filter(v => {
-      if (v.status !== 'programada') return false
-      return false // nextDose based overdue checked inline
-    }).length
     const overdueDoses = vaccinationRecords.filter(v => {
       if (v.nextDose && v.status === 'aplicada') {
         return new Date(v.nextDose) < new Date() && new Date(v.nextDose) > new Date(v.dateApplied)
@@ -252,7 +279,6 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
     return { applied, programmed, overdue: overdueDoses, total: vaccinationRecords.length }
   }, [vaccinationRecords])
 
-  // Filtered vaccinations
   const filteredVaccines = useMemo(() => {
     return vaccinationRecords.filter(v => {
       if (vaccineFilterBatch !== 'all' && v.batchId !== vaccineFilterBatch) return false
@@ -262,7 +288,6 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
     })
   }, [vaccinationRecords, vaccineFilterBatch, vaccineFilterStatus, vaccineFilterShed])
 
-  // Grouped by batch for summary
   const vaccinesByBatch = useMemo(() => {
     const grouped: Record<string, VaccinationRecord[]> = {}
     vaccinationRecords.forEach(v => {
@@ -272,92 +297,104 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
     return grouped
   }, [vaccinationRecords])
 
-  const addDailyEntry = () => {
-    if (!newEntry.batchId) {
-      alert('Selecciona un lote para registrar la produccion.')
-      return
-    }
-    if (!newEntry.eggsCollected && newEntry.eggsCollected !== 0) {
-      alert('Ingresa la cantidad de huevos recogidos.')
-      return
-    }
-    if (newEntry.eggsCollected < 0) {
-      alert('Los huevos recogidos no pueden ser negativos.')
-      return
-    }
-    if (newEntry.eggsBroken && newEntry.eggsBroken < 0) {
-      alert('Los huevos rotos no pueden ser negativos.')
-      return
-    }
-    if (newEntry.mortality && newEntry.mortality < 0) {
-      alert('La mortalidad no puede ser negativa.')
-      return
-    }
-    if (newEntry.feedKg && newEntry.feedKg < 0) {
-      alert('El feed no puede ser negativo.')
-      return
-    }
-    if (newEntry.waterLiters && newEntry.waterLiters < 0) {
-      alert('El agua no puede ser negativa.')
-      return
-    }
-    // Validar que huevos rotos no superen recogidos
-    if (newEntry.eggsBroken && newEntry.eggsCollected && newEntry.eggsBroken > newEntry.eggsCollected) {
-      alert('Los huevos rotos no pueden superar los huevos recogidos.')
-      return
-    }
-    const entry: DailyProductionEntry = {
-      id: `de-${Date.now()}`,
-      date: newEntry.date || today,
-      batchId: newEntry.batchId,
-      eggsCollected: newEntry.eggsCollected || 0,
-      eggsBroken: newEntry.eggsBroken || 0,
-      mortality: newEntry.mortality || 0,
-      feedKg: newEntry.feedKg || 0,
-      waterLiters: newEntry.waterLiters || 0,
-      notes: newEntry.notes || '',
-    }
-    setDailyEntries(prev => [entry, ...prev])
-    setNewEntry({})
+  // ================================================================
+  // CRUD: Daily Entries (Supabase API)
+  // ================================================================
+  const addDailyEntry = async () => {
+    if (!newEntry.batchId) { alert('Selecciona un lote para registrar la produccion.'); return }
+    if (!newEntry.eggsCollected && newEntry.eggsCollected !== 0) { alert('Ingresa la cantidad de huevos recogidos.'); return }
+    if (newEntry.eggsCollected < 0) { alert('Los huevos recogidos no pueden ser negativos.'); return }
+    if (newEntry.eggsBroken && newEntry.eggsBroken < 0) { alert('Los huevos rotos no pueden ser negativos.'); return }
+    if (newEntry.mortality && newEntry.mortality < 0) { alert('La mortalidad no puede ser negativa.'); return }
+    if (newEntry.eggsBroken && newEntry.eggsCollected && newEntry.eggsBroken > newEntry.eggsCollected) { alert('Los huevos rotos no pueden superar los huevos recogidos.'); return }
+
+    if (!farmId) return
+    try {
+      const res = await fetch(`/api/daily-entries?farm_id=${farmId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          batch_id: newEntry.batchId,
+          date: newEntry.date || today,
+          eggs_collected: newEntry.eggsCollected || 0,
+          eggs_broken: newEntry.eggsBroken || 0,
+          mortality: newEntry.mortality || 0,
+          feed_kg: newEntry.feedKg || 0,
+          water_liters: newEntry.waterLiters || 0,
+          notes: newEntry.notes || '',
+        }),
+      })
+      if (res.ok) {
+        setNewEntry({})
+        fetchAllData()
+      }
+    } catch { /* ignore */ }
   }
 
-  const updateFeedInventory = (id: string, field: keyof FeedInventory, value: string | number) => {
-    setFeedInventory(prev => prev.map(fi => fi.id === id ? { ...fi, [field]: value } : fi))
+  const removeDailyEntry = async (id: string) => {
+    try {
+      const res = await fetch(`/api/daily-entries/${id}`, { method: 'DELETE' })
+      if (res.ok) fetchAllData()
+    } catch { /* ignore */ }
   }
 
-  const removeDailyEntry = (id: string) => {
-    setDailyEntries(prev => prev.filter(e => e.id !== id))
+  // ================================================================
+  // CRUD: Feed Inventory (Supabase API)
+  // ================================================================
+  const updateFeedInventory = async (fi: FeedInventory) => {
+    if (!farmId) return
+    try {
+      await fetch(`/api/feed-inventory?farm_id=${farmId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phase_key: fi.phaseKey,
+          phase: fi.phase,
+          current_stock_kg: fi.currentStockKg,
+          reorder_level_kg: fi.reorderLevelKg,
+          last_purchase: fi.lastPurchase || null,
+          supplier: fi.supplier,
+          price_per_quintal: fi.pricePerQuintal,
+        }),
+      })
+      fetchAllData()
+    } catch { /* ignore */ }
   }
 
-  // --- Vaccination CRUD ---
-  const addVaccination = () => {
-    if (!newVaccine.batchId) {
-      alert('Selecciona un lote para la vacuna.')
-      return
-    }
-    if (!newVaccine.vaccineName || !newVaccine.vaccineName.trim()) {
-      alert('Ingresa el nombre de la vacuna.')
-      return
-    }
-    const vac: VaccinationRecord = {
-      id: `vac-${Date.now()}`,
-      batchId: newVaccine.batchId || '',
-      shedId: newVaccine.shedId || batches.find(b => b.id === newVaccine.batchId)?.name || '',
-      cycleNumber: newVaccine.cycleNumber || 1,
-      vaccineName: newVaccine.vaccineName || '',
-      dateApplied: newVaccine.dateApplied || '',
-      ageWeeks: newVaccine.ageWeeks || 0,
-      nextDose: newVaccine.nextDose || '',
-      appliedBy: newVaccine.appliedBy || '',
-      via: newVaccine.via || 'Ocular',
-      dosage: newVaccine.dosage || '',
-      lotNumber: newVaccine.lotNumber || '',
-      status: newVaccine.status || 'programada',
-      notes: newVaccine.notes || '',
-    }
-    setVaccinationRecords(prev => [vac, ...prev])
-    setNewVaccine({ status: 'programada', via: 'Ocular', dosage: '', lotNumber: '', cycleNumber: 1, shedId: '' })
-    setShowVaccineForm(false)
+  // ================================================================
+  // CRUD: Vaccinations (Supabase API)
+  // ================================================================
+  const addVaccination = async () => {
+    if (!newVaccine.batchId) { alert('Selecciona un lote para la vacuna.'); return }
+    if (!newVaccine.vaccineName || !newVaccine.vaccineName.trim()) { alert('Ingresa el nombre de la vacuna.'); return }
+    if (!farmId) return
+
+    try {
+      const res = await fetch(`/api/vaccinations?farm_id=${farmId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          batch_id: newVaccine.batchId || '',
+          shed_id: newVaccine.shedId || batches.find(b => b.id === newVaccine.batchId)?.name || '',
+          cycle_number: newVaccine.cycleNumber || 1,
+          vaccine_name: newVaccine.vaccineName || '',
+          date_applied: newVaccine.dateApplied || null,
+          age_weeks: newVaccine.ageWeeks || 0,
+          next_dose: newVaccine.nextDose || null,
+          applied_by: newVaccine.appliedBy || '',
+          via: newVaccine.via || 'Ocular',
+          dosage: newVaccine.dosage || '',
+          lot_number: newVaccine.lotNumber || '',
+          status: newVaccine.status || 'programada',
+          notes: newVaccine.notes || '',
+        }),
+      })
+      if (res.ok) {
+        setNewVaccine({ status: 'programada', via: 'Ocular', dosage: '', lotNumber: '', cycleNumber: 1, shedId: '' })
+        setShowVaccineForm(false)
+        fetchAllData()
+      }
+    } catch { /* ignore */ }
   }
 
   const startEditVaccine = (id: string) => {
@@ -367,13 +404,34 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
     setEditVaccineData({ ...vac })
   }
 
-  const saveEditVaccine = () => {
-    if (!editingVaccine) return
-    setVaccinationRecords(prev => prev.map(v =>
-      v.id === editingVaccine ? { ...v, ...editVaccineData } as VaccinationRecord : v
-    ))
-    setEditingVaccine(null)
-    setEditVaccineData({})
+  const saveEditVaccine = async () => {
+    if (!editingVaccine || !farmId) return
+    try {
+      const res = await fetch(`/api/vaccinations/${editingVaccine}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          batch_id: editVaccineData.batchId,
+          shed_id: editVaccineData.shedId,
+          cycle_number: editVaccineData.cycleNumber,
+          vaccine_name: editVaccineData.vaccineName,
+          date_applied: editVaccineData.dateApplied || null,
+          age_weeks: editVaccineData.ageWeeks,
+          next_dose: editVaccineData.nextDose || null,
+          applied_by: editVaccineData.appliedBy,
+          via: editVaccineData.via,
+          dosage: editVaccineData.dosage,
+          lot_number: editVaccineData.lotNumber,
+          status: editVaccineData.status,
+          notes: editVaccineData.notes,
+        }),
+      })
+      if (res.ok) {
+        setEditingVaccine(null)
+        setEditVaccineData({})
+        fetchAllData()
+      }
+    } catch { /* ignore */ }
   }
 
   const cancelEditVaccine = () => {
@@ -381,53 +439,131 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
     setEditVaccineData({})
   }
 
-  const removeVaccination = (id: string) => {
-    setVaccinationRecords(prev => prev.filter(v => v.id !== id))
-    if (editingVaccine === id) cancelEditVaccine()
+  const removeVaccination = async (id: string) => {
+    try {
+      const res = await fetch(`/api/vaccinations/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        if (editingVaccine === id) cancelEditVaccine()
+        fetchAllData()
+      }
+    } catch { /* ignore */ }
   }
 
-  const markAsApplied = (id: string) => {
-    setVaccinationRecords(prev => prev.map(v =>
-      v.id === id ? { ...v, status: 'aplicada' as const, dateApplied: v.dateApplied || today } : v
-    ))
+  const markAsApplied = async (id: string) => {
+    if (!farmId) return
+    const vac = vaccinationRecords.find(v => v.id === id)
+    if (!vac) return
+    try {
+      const res = await fetch(`/api/vaccinations/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...mapVaccinationToDB(vac),
+          status: 'aplicada',
+          date_applied: vac.dateApplied || today,
+        }),
+      })
+      if (res.ok) fetchAllData()
+    } catch { /* ignore */ }
   }
 
-  const generateScheduleForBatch = (batchId: string) => {
-    const batch = batches.find(b => b.id === batchId)
-    if (!batch) return
-    const existing = vaccinationRecords.filter(v => v.batchId === batchId)
+  const generateScheduleForBatch = async (targetBatchId: string) => {
+    const batch = batches.find(b => b.id === targetBatchId)
+    if (!batch || !farmId) return
+    const existing = vaccinationRecords.filter(v => v.batchId === targetBatchId)
     if (existing.length > 0) {
       if (!confirm(`El lote ${batch.name} ya tiene ${existing.length} vacunas registradas. Deseas reemplazarlas con el plan por defecto?`)) return
-      setVaccinationRecords(prev => prev.filter(v => v.batchId !== batchId))
+      // Delete existing
+      for (const v of existing) {
+        await fetch(`/api/vaccinations/${v.id}`, { method: 'DELETE' }).catch(() => {})
+      }
     }
-    const newSchedule = getDefaultVaccineSchedule(batchId, batch.name, 1)
-    setVaccinationRecords(prev => [...prev, ...newSchedule])
+    const newSchedule = getDefaultVaccineSchedule(targetBatchId, batch.name, 1)
+    try {
+      await fetch(`/api/vaccinations?farm_id=${farmId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vaccinations: newSchedule.map(v => ({
+            batch_id: v.batchId,
+            shed_id: v.shedId,
+            cycle_number: v.cycleNumber,
+            vaccine_name: v.vaccineName,
+            date_applied: null,
+            age_weeks: v.ageWeeks,
+            next_dose: null,
+            applied_by: '',
+            via: v.via,
+            dosage: v.dosage,
+            lot_number: v.lotNumber,
+            status: v.status,
+            notes: v.notes,
+          })),
+        }),
+      })
+      fetchAllData()
+    } catch { /* ignore */ }
   }
 
-  const duplicateScheduleFromBatch = (sourceBatchId: string, targetBatchId: string) => {
+  const duplicateScheduleFromBatch = async (sourceBatchId: string, targetBatchId: string) => {
     const sourceVacs = vaccinationRecords.filter(v => v.batchId === sourceBatchId)
-    if (sourceVacs.length === 0) return
+    if (sourceVacs.length === 0 || !farmId) return
     const targetBatch = batches.find(b => b.id === targetBatchId)
     const existing = vaccinationRecords.filter(v => v.batchId === targetBatchId)
     if (existing.length > 0) {
       if (!confirm(`El lote ${targetBatch?.name} ya tiene vacunas. Deseas reemplazarlas?`)) return
-      setVaccinationRecords(prev => prev.filter(v => v.batchId !== targetBatchId))
+      for (const v of existing) {
+        await fetch(`/api/vaccinations/${v.id}`, { method: 'DELETE' }).catch(() => {})
+      }
     }
-    const newVacs: VaccinationRecord[] = sourceVacs.map(v => ({
-      ...v,
-      id: `vac-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      batchId: targetBatchId,
-      shedId: targetBatch?.name || '',
-      status: 'programada' as const,
-      dateApplied: '',
-    }))
-    setVaccinationRecords(prev => [...prev, ...newVacs])
+    try {
+      await fetch(`/api/vaccinations?farm_id=${farmId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vaccinations: sourceVacs.map(v => ({
+            batch_id: targetBatchId,
+            shed_id: targetBatch?.name || '',
+            cycle_number: v.cycleNumber,
+            vaccine_name: v.vaccineName,
+            date_applied: null,
+            age_weeks: v.ageWeeks,
+            next_dose: null,
+            applied_by: '',
+            via: v.via,
+            dosage: v.dosage,
+            lot_number: v.lotNumber,
+            status: 'programada',
+            notes: v.notes,
+          })),
+        }),
+      })
+      fetchAllData()
+    } catch { /* ignore */ }
   }
 
-  const clearVaccinesForBatch = (batchId: string) => {
-    const batch = batches.find(b => b.id === batchId)
+  const clearVaccinesForBatch = async (targetBatchId: string) => {
+    const batch = batches.find(b => b.id === targetBatchId)
     if (!confirm(`Eliminar todas las vacunas del lote ${batch?.name}?`)) return
-    setVaccinationRecords(prev => prev.filter(v => v.batchId !== batchId))
+    const toDelete = vaccinationRecords.filter(v => v.batchId === targetBatchId)
+    for (const v of toDelete) {
+      await fetch(`/api/vaccinations/${v.id}`, { method: 'DELETE' }).catch(() => {})
+    }
+    fetchAllData()
+  }
+
+  // ================================================================
+  // RENDER
+  // ================================================================
+  if (loading) {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center justify-center py-10 text-stone-400">
+          <div className="w-6 h-6 border-2 border-stone-300 border-t-amber-500 rounded-full animate-spin mr-3" />
+          <span className="text-sm">Cargando datos...</span>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -600,7 +736,7 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
         </CardContent>
       </Card>
 
-      {/* --- INVENTARIO DE ALIMENTO (5 FASES COMPLETO) --- */}
+      {/* --- INVENTARIO DE ALIMENTO --- */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -654,12 +790,20 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
                       <TableCell className="text-[10px] text-stone-500">{weeks}</TableCell>
                       <TableCell className="text-xs text-right">
                         <Input type="number" value={fi.currentStockKg}
-                          onChange={e => updateFeedInventory(fi.id, 'currentStockKg', parseFloat(e.target.value) || 0)}
+                          onChange={e => {
+                            const updated = { ...fi, currentStockKg: parseFloat(e.target.value) || 0 }
+                            setFeedInventory(prev => prev.map(f => f.id === fi.id ? updated : f))
+                          }}
+                          onBlur={() => updateFeedInventory({ ...fi })}
                           className="w-20 h-7 text-xs text-right mx-auto" />
                       </TableCell>
                       <TableCell className="text-xs text-right">
                         <Input type="number" value={fi.reorderLevelKg}
-                          onChange={e => updateFeedInventory(fi.id, 'reorderLevelKg', parseFloat(e.target.value) || 0)}
+                          onChange={e => {
+                            const updated = { ...fi, reorderLevelKg: parseFloat(e.target.value) || 0 }
+                            setFeedInventory(prev => prev.map(f => f.id === fi.id ? updated : f))
+                          }}
+                          onBlur={() => updateFeedInventory({ ...fi })}
                           className="w-20 h-7 text-xs text-right mx-auto" />
                       </TableCell>
                       <TableCell className="text-[10px] text-right font-medium">{fmtRD(fi.pricePerQuintal)}</TableCell>
@@ -685,7 +829,6 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
             </Table>
           </div>
 
-          {/* Feed inventory summary */}
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-stone-50 rounded-lg">
             <div>
               <p className="text-[9px] text-stone-500 uppercase">Stock Total</p>
@@ -693,9 +836,7 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
             </div>
             <div>
               <p className="text-[9px] text-stone-500 uppercase">Fases Activas</p>
-              <p className="text-sm font-bold">{feedInventory.filter(fi => {
-                return batches.some(b => b.phase === fi.phaseKey)
-              }).length} de {feedInventory.length}</p>
+              <p className="text-sm font-bold">{feedInventory.filter(fi => batches.some(b => b.phase === fi.phaseKey)).length} de {feedInventory.length}</p>
             </div>
             <div>
               <p className="text-[9px] text-stone-500 uppercase">Consumo Diario Total</p>
@@ -709,9 +850,7 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
         </CardContent>
       </Card>
 
-      {/* ================================================================ */}
-      {/* --- CALENDARIO DE VACUNACION Y SALUD (MEJORADO COMPLETO) --- */}
-      {/* ================================================================ */}
+      {/* --- CALENDARIO DE VACUNACION Y SALUD --- */}
       <Card className="border-violet-200">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
@@ -727,8 +866,8 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
             <div className="flex items-center gap-1.5">
               <Button variant="outline" size="sm" className="gap-1 text-[10px] h-7"
                 onClick={() => {
-                  const batchId = prompt('Selecciona el lote ID para generar plan (ej: batch-0):')
-                  if (batchId) generateScheduleForBatch(batchId)
+                  const targetId = prompt('Selecciona el lote ID para generar plan (ej: batch-0):')
+                  if (targetId) generateScheduleForBatch(targetId)
                 }}>
                 <Clipboard className="w-3 h-3" /> Generar Plan
               </Button>
@@ -806,332 +945,104 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
                     onChange={e => setNewVaccine(p => ({ ...p, dateApplied: e.target.value }))}
                     className="h-8 text-xs" />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Prox. Dosis</Label>
-                  <Input type="date" value={newVaccine.nextDose || ''}
-                    onChange={e => setNewVaccine(p => ({ ...p, nextDose: e.target.value }))}
-                    className="h-8 text-xs" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Via</Label>
-                  <select value={newVaccine.via || 'Ocular'}
-                    onChange={e => setNewVaccine(p => ({ ...p, via: e.target.value }))}
-                    className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full">
-                    <option value="Ocular">Ocular</option>
-                    <option value="Agua bebida">Agua bebida</option>
-                    <option value="Inyectable">Inyectable</option>
-                    <option value="Ala">Ala</option>
-                    <option value="SC">Subcutanea</option>
-                    <option value="IM">Intramuscular</option>
-                    <option value="Nasal">Nasal</option>
-                    <option value="Spray">Spray</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Dosificacion</Label>
-                  <Input type="text" value={newVaccine.dosage || ''}
-                    onChange={e => setNewVaccine(p => ({ ...p, dosage: e.target.value }))}
-                    className="h-8 text-xs" placeholder="Ej: 1 gota" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Lote/Veterinario</Label>
-                  <Input type="text" value={newVaccine.appliedBy || ''}
-                    onChange={e => setNewVaccine(p => ({ ...p, appliedBy: e.target.value }))}
-                    className="h-8 text-xs" placeholder="Dr. / Tecnico" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">No. Lote Lab.</Label>
-                  <Input type="text" value={newVaccine.lotNumber || ''}
-                    onChange={e => setNewVaccine(p => ({ ...p, lotNumber: e.target.value }))}
-                    className="h-8 text-xs" placeholder="No. fabricante" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Estado</Label>
-                  <select value={newVaccine.status || 'programada'}
-                    onChange={e => setNewVaccine(p => ({ ...p, status: e.target.value as VaccinationRecord['status'] }))}
-                    className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full">
-                    <option value="programada">Programada</option>
-                    <option value="aplicada">Aplicada</option>
-                    <option value="vencida">Vencida</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Ciclo #</Label>
-                  <Input type="number" value={newVaccine.cycleNumber || 1}
-                    onChange={e => setNewVaccine(p => ({ ...p, cycleNumber: parseInt(e.target.value) || 1 }))}
-                    className="h-8 text-xs" min={1} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Notas</Label>
-                  <Input type="text" value={newVaccine.notes || ''}
-                    onChange={e => setNewVaccine(p => ({ ...p, notes: e.target.value }))}
-                    className="h-8 text-xs" placeholder="Observaciones..." />
-                </div>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={addVaccination} className="gap-1 text-xs h-7 bg-violet-600 hover:bg-violet-700">
-                  <Save className="w-3 h-3" /> Guardar Vacuna
+              <div className="flex gap-2 mt-2">
+                <Button size="sm" onClick={addVaccination} className="gap-1 text-xs h-8 bg-violet-600 hover:bg-violet-700 text-white">
+                  <Plus className="w-3 h-3" /> Guardar
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setShowVaccineForm(false)} className="text-xs h-7">
+                <Button size="sm" variant="outline" onClick={() => { setShowVaccineForm(false); setNewVaccine({ status: 'programada', via: 'Ocular', dosage: '', lotNumber: '', cycleNumber: 1, shedId: '' }) }} className="gap-1 text-xs h-8">
                   <X className="w-3 h-3" /> Cancelar
                 </Button>
               </div>
             </div>
           )}
 
-          {/* Filters */}
-          <div className="flex flex-wrap gap-2 mb-3 p-2 bg-stone-50 rounded-lg">
-            <div className="space-y-0.5">
-              <Label className="text-[9px] text-stone-500 uppercase">Filtrar Lote</Label>
-              <select value={vaccineFilterBatch}
-                onChange={e => setVaccineFilterBatch(e.target.value)}
-                className="h-7 text-[10px] rounded-md border border-input bg-background px-1.5 w-auto min-w-[100px]">
-                <option value="all">Todos los lotes</option>
-                {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-0.5">
-              <Label className="text-[9px] text-stone-500 uppercase">Estado</Label>
-              <select value={vaccineFilterStatus}
-                onChange={e => setVaccineFilterStatus(e.target.value)}
-                className="h-7 text-[10px] rounded-md border border-input bg-background px-1.5 w-auto min-w-[100px]">
-                <option value="all">Todos</option>
-                <option value="programada">Programada</option>
-                <option value="aplicada">Aplicada</option>
-                <option value="vencida">Vencida</option>
-              </select>
-            </div>
-            <div className="space-y-0.5">
-              <Label className="text-[9px] text-stone-500 uppercase">Galpon</Label>
-              <select value={vaccineFilterShed}
-                onChange={e => setVaccineFilterShed(e.target.value)}
-                className="h-7 text-[10px] rounded-md border border-input bg-background px-1.5 w-auto min-w-[100px]">
-                <option value="all">Todos</option>
-                {batches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-              </select>
-            </div>
-            <div className="flex-1" />
-            <div className="flex items-end gap-1">
-              <Button variant="ghost" size="sm" className="text-[9px] h-7 text-red-500"
-                onClick={() => {
-                  const batchId = prompt('ID del lote a limpiar (ej: batch-0):')
-                  if (batchId) clearVaccinesForBatch(batchId)
-                }}>
-                <Trash2 className="w-2.5 h-2.5 mr-0.5" /> Limpiar Lote
-              </Button>
-              <Button variant="ghost" size="sm" className="text-[9px] h-7"
-                onClick={() => {
-                  const sourceId = prompt('ID lote origen (ej: batch-0):')
-                  const targetId = prompt('ID lote destino (ej: batch-1):')
-                  if (sourceId && targetId) duplicateScheduleFromBatch(sourceId, targetId)
-                }}>
-                <Clipboard className="w-2.5 h-2.5 mr-0.5" /> Copiar Plan
-              </Button>
-            </div>
-          </div>
-
           {/* Vaccination table */}
-          {filteredVaccines.length === 0 ? (
-            <div className="text-center py-6 text-stone-400">
-              <Syringe className="w-8 h-8 mx-auto mb-1 opacity-30" />
-              <p className="text-xs">Sin registros de vacunacion {vaccineFilterBatch !== 'all' ? 'para este filtro.' : '.'}</p>
-              <div className="flex justify-center gap-2 mt-2">
-                {batches.map(b => (
-                  <Button key={b.id} variant="outline" size="sm" className="text-[10px] h-7"
-                    onClick={() => generateScheduleForBatch(b.id)}>
-                    <Plus className="w-3 h-3 mr-1" /> {b.name}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-[9px]">Estado</TableHead>
-                    <TableHead className="text-[9px]">Lote</TableHead>
-                    <TableHead className="text-[9px]">Galpon</TableHead>
-                    <TableHead className="text-[9px]">Ciclo</TableHead>
-                    <TableHead className="text-[9px]">Vacuna</TableHead>
-                    <TableHead className="text-[9px]">Edad</TableHead>
-                    <TableHead className="text-[9px]">Fecha</TableHead>
-                    <TableHead className="text-[9px]">Prox. Dosis</TableHead>
-                    <TableHead className="text-[9px]">Via</TableHead>
-                    <TableHead className="text-[9px]">Dosificacion</TableHead>
-                    <TableHead className="text-[9px]">Veterinario</TableHead>
-                    <TableHead className="text-[9px]">Lote Lab.</TableHead>
-                    <TableHead className="text-[9px]">Notas</TableHead>
-                    <TableHead className="text-[9px]"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredVaccines.map(vac => {
-                    const batch = batches.find(b => b.id === vac.batchId)
-                    const isOverdue = vac.nextDose && vac.status === 'aplicada' && new Date(vac.nextDose) < new Date()
-                    const isEditing = editingVaccine === vac.id
-
-                    return (
-                      <TableRow key={vac.id} className={`
-                        ${isOverdue ? 'bg-red-50' : ''}
-                        ${vac.status === 'aplicada' ? 'bg-green-50/50' : ''}
-                        ${vac.status === 'vencida' ? 'bg-red-50/50' : ''}
-                        ${isEditing ? 'bg-violet-50 ring-1 ring-violet-300' : ''}
-                      `}>
-                        {isEditing ? (
-                          <>
-                            <TableCell className="text-[10px]">
-                              <select value={editVaccineData.status || 'programada'}
-                                onChange={e => setEditVaccineData(p => ({ ...p, status: e.target.value as VaccinationRecord['status'] }))}
-                                className="h-6 text-[10px] rounded border px-1 w-full">
-                                <option value="programada">Programada</option>
-                                <option value="aplicada">Aplicada</option>
-                                <option value="vencida">Vencida</option>
-                              </select>
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <select value={editVaccineData.batchId || ''}
-                                onChange={e => {
-                                  const b = batches.find(x => x.id === e.target.value)
-                                  setEditVaccineData(p => ({ ...p, batchId: e.target.value, shedId: b?.name || '' }))
-                                }}
-                                className="h-6 text-[10px] rounded border px-1 w-full">
-                                {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                              </select>
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="text" value={editVaccineData.shedId || ''} className="h-6 text-[10px] w-16"
-                                onChange={e => setEditVaccineData(p => ({ ...p, shedId: e.target.value }))} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="number" value={editVaccineData.cycleNumber || 1} className="h-6 text-[10px] w-12"
-                                onChange={e => setEditVaccineData(p => ({ ...p, cycleNumber: parseInt(e.target.value) || 1 }))} min={1} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="text" value={editVaccineData.vaccineName || ''} className="h-6 text-[10px] w-full min-w-[80px]"
-                                onChange={e => setEditVaccineData(p => ({ ...p, vaccineName: e.target.value }))} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="number" value={editVaccineData.ageWeeks || 0} className="h-6 text-[10px] w-12"
-                                onChange={e => setEditVaccineData(p => ({ ...p, ageWeeks: parseInt(e.target.value) || 0 }))} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="date" value={editVaccineData.dateApplied || ''} className="h-6 text-[10px] w-28"
-                                onChange={e => setEditVaccineData(p => ({ ...p, dateApplied: e.target.value }))} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="date" value={editVaccineData.nextDose || ''} className="h-6 text-[10px] w-28"
-                                onChange={e => setEditVaccineData(p => ({ ...p, nextDose: e.target.value }))} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <select value={editVaccineData.via || 'Ocular'}
-                                onChange={e => setEditVaccineData(p => ({ ...p, via: e.target.value }))}
-                                className="h-6 text-[10px] rounded border px-1 w-full">
-                                <option value="Ocular">Ocular</option>
-                                <option value="Agua bebida">Agua bebida</option>
-                                <option value="Inyectable">Inyectable</option>
-                                <option value="Ala">Ala</option>
-                                <option value="SC">Subcutanea</option>
-                                <option value="IM">Intramuscular</option>
-                                <option value="Nasal">Nasal</option>
-                                <option value="Spray">Spray</option>
-                              </select>
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="text" value={editVaccineData.dosage || ''} className="h-6 text-[10px] w-20"
-                                onChange={e => setEditVaccineData(p => ({ ...p, dosage: e.target.value }))} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="text" value={editVaccineData.appliedBy || ''} className="h-6 text-[10px] w-20"
-                                onChange={e => setEditVaccineData(p => ({ ...p, appliedBy: e.target.value }))} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="text" value={editVaccineData.lotNumber || ''} className="h-6 text-[10px] w-16"
-                                onChange={e => setEditVaccineData(p => ({ ...p, lotNumber: e.target.value }))} />
-                            </TableCell>
-                            <TableCell className="text-[10px]">
-                              <Input type="text" value={editVaccineData.notes || ''} className="h-6 text-[10px] w-24"
-                                onChange={e => setEditVaccineData(p => ({ ...p, notes: e.target.value }))} />
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex gap-0.5 justify-end">
-                                <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-green-500 hover:text-green-700"
-                                  onClick={saveEditVaccine}>
-                                  <Save className="w-3 h-3" />
-                                </Button>
-                                <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-stone-400 hover:text-stone-600"
-                                  onClick={cancelEditVaccine}>
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </>
-                        ) : (
-                          <>
-                            <TableCell>
-                              <Badge className={`text-[8px] ${
-                                vac.status === 'aplicada' ? 'bg-green-100 text-green-700' :
-                                vac.status === 'vencida' ? 'bg-red-100 text-red-700' :
-                                'bg-amber-100 text-amber-700'
-                              }`}>
-                                {vac.status === 'aplicada' ? <><CheckCircle2 className="w-2 h-2 mr-0.5" /> Aplicada</> :
-                                 vac.status === 'vencida' ? 'Vencida' : 'Programada'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-[10px] font-medium">{batch?.name || vac.batchId}</TableCell>
-                            <TableCell className="text-[10px] text-stone-500">{vac.shedId || '-'}</TableCell>
-                            <TableCell className="text-[10px] text-center">#{vac.cycleNumber}</TableCell>
-                            <TableCell className="text-[10px] font-medium">{vac.vaccineName}</TableCell>
-                            <TableCell className="text-[10px] text-center">{vac.ageWeeks}s</TableCell>
-                            <TableCell className="text-[10px]">{vac.dateApplied || '-'}</TableCell>
-                            <TableCell className={`text-[10px] ${isOverdue ? 'text-red-600 font-bold' : ''}`}>
-                              {vac.nextDose || '-'} {isOverdue ? ' !' : ''}
-                            </TableCell>
-                            <TableCell className="text-[10px]">{vac.via}</TableCell>
-                            <TableCell className="text-[10px] text-stone-500">{vac.dosage || '-'}</TableCell>
-                            <TableCell className="text-[10px]">{vac.appliedBy || '-'}</TableCell>
-                            <TableCell className="text-[10px] text-stone-400">{vac.lotNumber || '-'}</TableCell>
-                            <TableCell className="text-[9px] text-stone-500 max-w-[80px] truncate">{vac.notes || ''}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex gap-0.5 justify-end">
-                                {vac.status === 'programada' && (
-                                  <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-green-400 hover:text-green-600"
-                                    onClick={() => markAsApplied(vac.id)} title="Marcar como aplicada">
-                                    <CheckCircle2 className="w-3 h-3" />
-                                  </Button>
-                                )}
-                                <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-stone-300 hover:text-violet-500"
-                                  onClick={() => startEditVaccine(vac.id)} title="Editar">
-                                  <Edit3 className="w-3 h-3" />
-                                </Button>
-                                <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-stone-300 hover:text-red-500"
-                                  onClick={() => removeVaccination(vac.id)} title="Eliminar">
-                                  <Trash2 className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </>
-                        )}
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
-          {/* Info alert */}
-          <Alert className="mt-3">
-            <Info className="h-4 w-4" />
-            <AlertDescription className="text-[11px]">
-              <strong>Plan vacunal WD80 tipico:</strong> Newcastle (S1, S3, S6, refuerzo), Gumboro (S1, S2, S4),
-              Bronquitis Infecciosa (S2, S5), Coriza (S5), Encefalomielitis (S8), Marek (dia 1 incubadora).
-              Usa &quot;Generar Plan&quot; para crear un esquema base y edita las dosis segun las indicaciones de tu veterinario.
-              Las vacunas pueden variar por lote, galpon, ciclo y disponibilidad de laboratorio.
-            </AlertDescription>
-          </Alert>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-[10px]">Vacuna</TableHead>
+                <TableHead className="text-[10px]">Lote</TableHead>
+                <TableHead className="text-[10px] text-right">Sem.</TableHead>
+                <TableHead className="text-[10px]">Fecha</TableHead>
+                <TableHead className="text-[10px]">Via</TableHead>
+                <TableHead className="text-[10px]">Estado</TableHead>
+                <TableHead className="text-[10px] text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredVaccines.map(v => (
+                <TableRow key={v.id}>
+                  {editingVaccine === v.id ? (
+                    <>
+                      <TableCell><Input className="h-7 text-[10px]" value={editVaccineData.vaccineName || ''} onChange={e => setEditVaccineData(p => ({ ...p, vaccineName: e.target.value }))} /></TableCell>
+                      <TableCell>{batches.find(b => b.id === v.batchId)?.name || '-'}</TableCell>
+                      <TableCell className="text-right"><Input type="number" className="h-7 w-14 text-[10px] text-right" value={editVaccineData.ageWeeks || ''} onChange={e => setEditVaccineData(p => ({ ...p, ageWeeks: parseInt(e.target.value) || 0 }))} /></TableCell>
+                      <TableCell><Input type="date" className="h-7 text-[10px]" value={editVaccineData.dateApplied || ''} onChange={e => setEditVaccineData(p => ({ ...p, dateApplied: e.target.value }))} /></TableCell>
+                      <TableCell>{v.via}</TableCell>
+                      <TableCell>
+                        <Button size="sm" className="gap-0.5 text-[9px] h-6 bg-green-100 text-green-700 hover:bg-green-200" onClick={saveEditVaccine}>
+                          <Save className="w-2.5 h-2.5" /> Guardar
+                        </Button>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={cancelEditVaccine}><X className="w-3 h-3" /></Button>
+                      </TableCell>
+                    </>
+                  ) : (
+                    <>
+                      <TableCell className="text-[11px] font-medium">{v.vaccineName}</TableCell>
+                      <TableCell className="text-[11px]"><Badge variant="outline" className="text-[8px]">{batches.find(b => b.id === v.batchId)?.name || '-'}</Badge></TableCell>
+                      <TableCell className="text-[11px] text-right">{v.ageWeeks}</TableCell>
+                      <TableCell className="text-[11px]">{v.dateApplied || '-'}</TableCell>
+                      <TableCell className="text-[11px]">{v.via}</TableCell>
+                      <TableCell>
+                        <Badge className={`text-[9px] ${v.status === 'aplicada' ? 'bg-green-100 text-green-700' : v.status === 'vencida' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {v.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-0.5">
+                          {v.status === 'programada' && (
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-600 hover:text-green-700" onClick={() => markAsApplied(v.id)} title="Marcar aplicada">
+                              <CheckCircle2 className="w-3 h-3" />
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-600" onClick={() => startEditVaccine(v.id)} title="Editar">
+                            <Edit3 className="w-3 h-3" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-red-500" onClick={() => removeVaccination(v.id)} title="Eliminar">
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
   )
+}
+
+// Helper to map vaccination from camelCase to snake_case for API
+function mapVaccinationToDB(v: VaccinationRecord): Record<string, unknown> {
+  return {
+    batch_id: v.batchId,
+    shed_id: v.shedId,
+    cycle_number: v.cycleNumber,
+    vaccine_name: v.vaccineName,
+    date_applied: v.dateApplied || null,
+    age_weeks: v.ageWeeks,
+    next_dose: v.nextDose || null,
+    applied_by: v.appliedBy,
+    via: v.via,
+    dosage: v.dosage,
+    lot_number: v.lotNumber,
+    status: v.status,
+    notes: v.notes,
+  }
 }

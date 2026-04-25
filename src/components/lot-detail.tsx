@@ -25,7 +25,6 @@ import {
 } from '@/lib/farm-data'
 import OperationsPanel from '@/components/operations-panel'
 import RemindersPanel from '@/components/reminders-panel'
-import { getDailyEntries } from '@/lib/history'
 import type { DailyEntry } from '@/lib/history'
 
 // ================================================================
@@ -476,11 +475,29 @@ function AlertasTab({ batch, config }: {
 }
 
 function HistorialTab({ batch }: { batch: BatchConfig }) {
+  const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
   const [entries, setEntries] = useState<DailyEntry[]>([])
 
   useEffect(() => {
-    const all = getDailyEntries()
-    setEntries(all.filter(e => e.batchId === batch.id).sort((a, b) => b.date.localeCompare(a.date)))
+    if (!FARM_ID) return
+    fetch(`/api/daily-entries?farm_id=${FARM_ID}&batch_id=${batch.id}&limit=500`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.entries) { setEntries([]); return }
+        const mapped = (data.entries as Record<string, unknown>[]).map(e => ({
+          id: e.id as string,
+          date: (e.date || '') as string,
+          batchId: (e.batch_id || '') as string,
+          eggsCollected: (e.eggs_collected || 0) as number,
+          eggsBroken: (e.eggs_broken || 0) as number,
+          mortality: (e.mortality || 0) as number,
+          feedKg: (e.feed_kg || 0) as number,
+          waterLiters: (e.water_liters || 0) as number,
+          notes: (e.notes || '') as string,
+        }))
+        setEntries(mapped.sort((a, b) => b.date.localeCompare(a.date)))
+      })
+      .catch(() => {})
   }, [batch.id])
 
   // Calcular resumen
