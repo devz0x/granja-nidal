@@ -35,7 +35,7 @@ import {
 import {
   TrendingUp, TrendingDown, DollarSign, Egg, Wheat,
   Activity, Target, Settings, FileText, Sparkles, AlertTriangle, CheckCircle2,
-  RefreshCw, Bell, Map, FileOutput, ClipboardCheck, ChevronDown, ChevronUp, Eye,
+  RefreshCw, Bell, Map, FileOutput, ClipboardCheck, ChevronLeft, ChevronDown, ChevronUp, Eye,
   Plus, Trash2, Printer,
 } from 'lucide-react'
 

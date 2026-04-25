@@ -7,15 +7,10 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
-import {
-  ArrowLeft, Egg, Wheat, DollarSign, TrendingUp, TrendingDown,
-  BarChart3, ClipboardCheck, Heart, Building2, Activity, Target, Box,
-  Zap, Sparkles, PieChart, Info, Plus, Trash2, Printer,
+  ArrowLeft, Egg, Wheat, DollarSign, Info, Trash2,
+  BarChart3, ClipboardCheck, Heart,
 } from 'lucide-react'
 import type {
   PhaseKey, FarmConfig, BatchConfig, CalculationsResult,
@@ -213,19 +208,19 @@ export default function LotDetail({ batch, totalBatches, calc, config, onBack, u
         <GeneralTab batch={batch} config={config} updateBatch={updateBatch} detail={detail} calc={calc} />
       )}
       {activeSubTab === 'produccion' && (
-        <ProduccionTab batch={batch} config={config} batches={[]} updateBatch={updateBatch} detail={detail} />
+        <ProduccionTab batch={batch} config={config} detail={detail} />
       )}
       {activeSubTab === 'feed' && (
         <FeedTab batch={batch} config={config} detail={detail} calc={calc} />
       )}
       {activeSubTab === 'salud' && (
-        <SaludTab batch={batch} config={config} batches={[]} />
+        <SaludTab batch={batch} config={config} />
       )}
       {activeSubTab === 'finanzas' && (
         <FinanzasTab batch={batch} config={config} detail={detail} calc={calc} />
       )}
       {activeSubTab === 'alertas' && (
-        <AlertasTab batch={batch} config={config} batches={[]} />
+        <AlertasTab batch={batch} config={config} />
       )}
     </div>
   )
@@ -302,29 +297,18 @@ function GeneralTab({ batch, config, updateBatch, detail, calc }: {
   )
 }
 
-function ProduccionTab({ batch, config, batches, updateBatch, detail }: {
-  batch: BatchConfig; config: FarmConfig; batches: BatchConfig[]
-  updateBatch: (id: string, field: keyof BatchConfig, value: boolean | number | string) => void
+function ProduccionTab({ batch, config, detail }: {
+  batch: BatchConfig; config: FarmConfig
   detail: CalculationsResult['batchDetails'][0] | undefined
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Egg className="w-4 h-4 text-green-600" /> Registro de Produccion
-        </CardTitle>
-        <CardDescription className="text-[11px]">Registro diario de produccion para {batch.name}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <OperationsPanel
-          batches={[batch]}
-          config={config}
-          fmtRD={fmtRD}
-          fmtNum={fmtNum}
-          batchId={batch.id}
-        />
-      </CardContent>
-    </Card>
+    <OperationsPanel
+      batches={[batch]}
+      config={config}
+      fmtRD={fmtRD}
+      fmtNum={fmtNum}
+      batchId={batch.id}
+    />
   )
 }
 
@@ -347,7 +331,7 @@ function FeedTab({ batch, config, detail, calc }: {
             <div className="p-3 bg-red-50 rounded-lg">
               <p className="text-[10px] text-red-600">Precio</p>
               <p className="text-lg font-bold text-red-700">{fmtRD(feed.price)}/qq</p>
-              <p className="text-[10px] text-stone-500">{fmtNum(calc.defaultFeedCostByPhase?.find(fp => fp.phaseKey === batch.phase)?.monthlyCost || 0) || '-'} vs base</p>
+              <p className="text-[10px] text-stone-500">{fmtNum(calc.feedCostByPhase?.find(fp => fp.phaseKey === batch.phase)?.defMonthlyCost || 0)} vs base</p>
             </div>
             <div className="p-3 bg-stone-50 rounded-lg">
               <p className="text-[10px] text-stone-500">Costo Mensual</p>
@@ -380,20 +364,11 @@ function FeedTab({ batch, config, detail, calc }: {
   )
 }
 
-function SaludTab({ batch, config, batches }: {
-  batch: BatchConfig; config: FarmConfig; batches: BatchConfig[]
+function SaludTab({ batch, config }: {
+  batch: BatchConfig; config: FarmConfig
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Heart className="w-4 h-4 text-red-500" /> Calendario de Salud — {batch.name}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <OperationsPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
-      </CardContent>
-    </Card>
+    <OperationsPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
   )
 }
 
@@ -464,19 +439,10 @@ function FinanzasTab({ batch, config, detail, calc }: {
   )
 }
 
-function AlertasTab({ batch, config, batches }: {
-  batch: BatchConfig; config: FarmConfig; batches: BatchConfig[]
+function AlertasTab({ batch, config }: {
+  batch: BatchConfig; config: FarmConfig
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-amber-600" /> Alertas — {batch.name}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <RemindersPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
-      </CardContent>
-    </Card>
+    <RemindersPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
   )
 }
