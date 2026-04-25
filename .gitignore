@@ -32,23 +32,44 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
-
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 local-*
+
+# Internal AI platform config
 .claude
 .z-ai-config
 *.log
 dev.log
 dev.out.log
+server.log
 test
 prompt
 
-server.log
-# Skills directory
+# Skills directory (internal platform files)
 /skills/
+
+# Database files (never commit databases)
+db/*.db
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+
+# Upload directory (user-uploaded files)
+/upload/
+
+# Download directory (generated documents)
+/download/
+
+# Internal scripts
+.zscripts/
+worklog.md
+
+# Agent context
+/agent-ctx/
