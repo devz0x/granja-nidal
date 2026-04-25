@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth } from '@/lib/auth-api'
 
 // PUT /api/vaccinations/[id]
@@ -11,7 +11,9 @@ export async function PUT(
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const { error: authError } = await verifyAuth(req)
+  const supabase = await createServerSupabaseClient()
+
+  const { error: authError } = await verifyAuth()
   if (authError) return authError
 
   const { id } = await params
@@ -43,7 +45,9 @@ export async function DELETE(
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const { error: authError } = await verifyAuth(req)
+  const supabase = await createServerSupabaseClient()
+
+  const { error: authError } = await verifyAuth()
   if (authError) return authError
 
   const { id } = await params

@@ -1,20 +1,24 @@
 import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-
 const _isConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith('http'))
 
-// Only create the client if properly configured; otherwise use a no-op placeholder
-// that won't crash on import. The app checks isSupabaseConfigured() before any calls.
-export const supabase = _isConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : createClient('https://placeholder.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDc4NzE0MDF9.placeholder')
+// Use createBrowserClient in the browser for cookie-based auth (readable by middleware).
+// Falls back to createClient on the server (basic client, no auth context).
+// For server-side API routes, use createServerSupabaseClient from './supabase/server'.
+const _isBrowser = typeof window !== 'undefined'
+export const supabase = _isBrowser && _isConfigured
+  ? createBrowserClient(supabaseUrl, supabaseAnonKey)
+  : _isConfigured
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : createClient('https://placeholder.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDc4NzE0MDF9.placeholder')
 
 export const isSupabaseConfigured = (): boolean => _isConfigured
 
 // ================================================================
-// Auth Helpers
+// Auth Helpers (Browser-side)
 // ================================================================
 
 export const getSession = async () => {

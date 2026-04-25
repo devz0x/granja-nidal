@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
 
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
     return NextResponse.redirect(new URL('/auth/login', req.url))
   }
+
+  const supabase = await createServerSupabaseClient()
 
   const { searchParams, origin } = new URL(req.url)
   const code = searchParams.get('code')

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth } from '@/lib/auth-api'
 
 // POST /api/migrate - Migrate all localStorage data to Supabase
@@ -8,8 +8,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
+  const supabase = await createServerSupabaseClient()
+
   // Verify authentication
-  const { error: authError } = await verifyAuth(req)
+  const { error: authError } = await verifyAuth()
   if (authError) return authError
 
   const body = await req.json()

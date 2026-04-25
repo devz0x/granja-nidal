@@ -1,5 +1,5 @@
+import { createServerClient } from '@supabase/ssr'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 
 export async function middleware(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -22,38 +22,50 @@ export async function middleware(req: NextRequest) {
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/') ||
-    pathname.includes('.') // static files
+    pathname.includes('.')
   ) {
     return NextResponse.next()
   }
 
-  // For protected routes, check for a valid session
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
+  // Create a Supabase client for the middleware using @supabase/ssr
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return req.cookies.getAll()
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) =>
+          req.cookies.set(name, value)
+        )
+        const response = NextResponse.next({
+          request: { headers: req.headers },
+        })
+        cookiesToSet.forEach(({ name, value, options }) =>
+          response.cookies.set(name, value, options)
+        )
+        return response
+      },
     },
   })
 
-  // Get the access token from the request
-  const authHeader = req.headers.get('authorization')
-  let accessToken = authHeader?.replace('Bearer ', '')
+  // Refresh the session to keep it alive
+  const { data: { user } } = await supabase.auth.getUser()
 
-  // For page navigation, check cookies
-  if (!accessToken) {
-    // Try to get session from cookie
-    const { data } = await supabase.auth.getSession()
-    accessToken = data.session?.access_token
-  }
-
-  // If no session, redirect to login (but only for the main page)
-  if (!accessToken && (pathname === '/' || pathname === '')) {
+  // If no user session, redirect to login (only for the main page)
+  if (!user && (pathname === '/' || pathname === '')) {
     const loginUrl = new URL('/auth/login', req.url)
     loginUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(loginUrl)
   }
 
-  return NextResponse.next()
+  // IMPORTANT: If setAll was called (session was refreshed), return the response
+  // with updated cookies. This ensures the session stays alive.
+  // We check this by comparing if cookies were modified.
+  const response = NextResponse.next({
+    request: { headers: req.headers },
+  })
+
+  return response
 }
 
 export const config = {

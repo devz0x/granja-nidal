@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth } from '@/lib/auth-api'
 
 // GET /api/farm - Get farm by ID or check connection
@@ -8,8 +8,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured', configured: false }, { status: 200 })
   }
 
+  const supabase = await createServerSupabaseClient()
+
   // Verify authentication
-  const { user, error: authError } = await verifyAuth(req)
+  const { user, error: authError } = await verifyAuth()
   if (authError) return authError
 
   const { searchParams } = new URL(req.url)
@@ -39,12 +41,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
+  const supabase = await createServerSupabaseClient()
+
   // Verify authentication
-  const { user, error: authError } = await verifyAuth(req)
+  const { user, error: authError } = await verifyAuth()
   if (authError) return authError
 
   const body = await req.json()
-  const { name, slug, config, user_id } = body
+  const { name, slug, config } = body
 
   if (!name || !slug) {
     return NextResponse.json({ error: 'name and slug are required' }, { status: 400 })
@@ -53,13 +57,49 @@ export async function POST(req: NextRequest) {
   // Use authenticated user's ID (ignore user_id from request body for security)
   const ownerId = user?.id
 
+  // Clean up the slug
+  const cleanSlug = slug
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 50)
+
+  // Check if slug already exists
+  const { data: existingFarm } = await supabase
+    .from('farms')
+    .select('id, slug')
+    .eq('slug', cleanSlug)
+    .single()
+
+  if (existingFarm) {
+    return NextResponse.json(
+      {
+        error: 'Ya existe una granja con ese slug. Intenta con un nombre diferente.',
+        code: 'SLUG_EXISTS',
+        existingSlug: cleanSlug,
+      },
+      { status: 409 }
+    )
+  }
+
   const { data, error } = await supabase
     .from('farms')
-    .insert({ name, slug, config: config || {}, user_id: ownerId })
+    .insert({ name, slug: cleanSlug, config: config || {}, user_id: ownerId })
     .select()
     .single()
 
   if (error) {
+    // Handle specific database errors with user-friendly messages
+    if (error.message.includes('duplicate key') || error.message.includes('unique constraint')) {
+      return NextResponse.json(
+        {
+          error: 'Ya existe una granja con ese slug. Intenta con un nombre diferente.',
+          code: 'SLUG_EXISTS',
+        },
+        { status: 409 }
+      )
+    }
+
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

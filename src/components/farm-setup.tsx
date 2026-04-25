@@ -71,7 +71,19 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
       const data = await res.json()
 
       if (data.error) {
-        setError(data.error)
+        // Handle slug conflict with helpful suggestion
+        if (data.code === 'SLUG_EXISTS') {
+          setError('Ya existe una granja con ese nombre/slug. Intenta con un nombre diferente.')
+          setFarmSlug(prev => {
+            // Suggest an alternative slug with a number suffix
+            const match = prev.match(/^(.*?)-?(\d*)$/)
+            const base = match ? match[1] : prev
+            const num = match && match[2] ? parseInt(match[2]) + 1 : 2
+            return `${base}-${num}`
+          })
+        } else {
+          setError(data.error)
+        }
         return
       }
 

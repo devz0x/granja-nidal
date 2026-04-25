@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { NextResponse } from 'next/server'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import { verifyServerAuth } from '@/lib/supabase/server'
 import type { User } from '@supabase/supabase-js'
 
 interface AuthResult {
@@ -8,35 +9,25 @@ interface AuthResult {
 }
 
 /**
- * Verify the current user's session from the request.
- * Uses Supabase's getSession() which reads cookies set by the client.
+ * Verify the current user's session from cookies.
+ * Uses the server-side Supabase client (@supabase/ssr) for reliable cookie handling.
+ * Compatible with existing API route signatures.
  */
-export async function verifyAuth(req: NextRequest): Promise<AuthResult> {
+export async function verifyAuth(): Promise<AuthResult> {
   if (!isSupabaseConfigured()) {
     return { user: null, error: null } // Allow in local-only mode
   }
 
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
+  const result = await verifyServerAuth()
 
-    if (!session || !session.user) {
-      return {
-        user: null,
-        error: NextResponse.json(
-          { error: 'No autenticado. Inicia sesión para continuar.' },
-          { status: 401 }
-        ),
-      }
-    }
-
-    return { user: session.user, error: null }
-  } catch {
-    return {
-      user: null,
-      error: NextResponse.json(
-        { error: 'Error de verificación de autenticación.' },
-        { status: 500 }
-      ),
-    }
+  // Convert Response to NextResponse for compatibility
+  if (result.error) {
+    const errorResponse = new NextResponse(result.error.body, {
+      status: result.error.status,
+      headers: result.error.headers,
+    })
+    return { user: null, error: errorResponse }
   }
+
+  return { user: result.user, error: null }
 }
