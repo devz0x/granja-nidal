@@ -83,6 +83,7 @@ const SUB_TABS: { key: LotSubTab; label: string; icon: React.ReactNode }[] = [
 // ================================================================
 interface LotDetailProps {
   batch: BatchConfig
+  totalBatches: number
   calc: CalculationsResult
   config: FarmConfig
   onBack: () => void
@@ -93,7 +94,7 @@ interface LotDetailProps {
 // ================================================================
 // LOT DETAIL COMPONENT
 // ================================================================
-export default function LotDetail({ batch, calc, config, onBack, updateBatch, removeBatch }: LotDetailProps) {
+export default function LotDetail({ batch, totalBatches, calc, config, onBack, updateBatch, removeBatch }: LotDetailProps) {
   const [activeSubTab, setActiveSubTab] = useState<LotSubTab>('general')
   const detail = calc.batchDetails.find(b => b.id === batch.id)
   const feed = config.feedPhases[batch.phase]
@@ -147,7 +148,7 @@ export default function LotDetail({ batch, calc, config, onBack, updateBatch, re
                 </div>
               </div>
             </div>
-            {batches.length > 1 && (
+            {totalBatches > 1 && (
               <Button variant="ghost" size="sm" onClick={() => removeBatch(batch.id)}
                 className="text-red-400 hover:text-red-600 hover:bg-red-50 h-8 w-8 p-0">
                 <Trash2 className="w-4 h-4" />

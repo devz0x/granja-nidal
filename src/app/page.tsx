@@ -534,6 +534,7 @@ export default function Home() {
         {view === 'lot-detail' && selectedBatch && selectedCalc && (
           <LotDetail
             batch={selectedBatch}
+            totalBatches={batches.length}
             calc={selectedCalc}
             config={config}
             onBack={goBack}
