@@ -150,7 +150,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 CREATE OR REPLACE FUNCTION current_user_email()
 RETURNS TEXT AS $$
-  SELECT raw_user_email FROM auth.users WHERE id = auth.uid();
+  SELECT email FROM auth.users WHERE id = auth.uid();
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 CREATE OR REPLACE FUNCTION audit_log_trigger()
