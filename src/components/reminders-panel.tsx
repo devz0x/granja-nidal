@@ -24,6 +24,7 @@ import {
   Calendar, ChevronDown, ChevronUp, Filter, Search, Printer, RotateCcw, Eye,
   Bug, ClipboardCheck, Timer, ArrowUpDown, Sparkles,
 } from 'lucide-react'
+import { isSupabaseConfigured, getFarmId } from '@/lib/supabase'
 
 // ================================================================
 // TYPES
@@ -50,7 +51,7 @@ interface Reminder {
   notes: string
   estimatedCost: number
   assignedTo: string
-  autoSource?: string  // 'batch-created', 'phase-change', 'phase-transition', 'cycle-warning', 'pest-control', 'batch-milestone'
+  autoSource?: string
 }
 
 interface RemindersProps {
@@ -62,7 +63,7 @@ interface RemindersProps {
   }
   fmtRD: (v: number) => string
   fmtNum: (v: number) => string
-  batchId?: string | null  // Optional filter to show reminders for a specific batch only
+  batchId?: string | null
 }
 
 // ================================================================
@@ -193,6 +194,27 @@ function createEmptyReminder(): Reminder {
 }
 
 // ================================================================
+// Supabase sync helpers
+// ================================================================
+async function syncToSupabase(reminders: Reminder[]) {
+  if (!isSupabaseConfigured()) return
+  const farmId = getFarmId()
+  if (!farmId) return
+
+  try {
+    const res = await fetch(`/api/reminders?farm_id=${farmId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reminders }),
+    })
+    // Best-effort: don't block UI on sync failure
+    if (!res.ok) console.warn('Failed to sync reminders to Supabase')
+  } catch {
+    // Silently fail
+  }
+}
+
+// ================================================================
 // MAIN COMPONENT
 // ================================================================
 export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId }: RemindersProps) {
@@ -222,27 +244,26 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
   const [filterPriority, setFilterPriority] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterBatch, setFilterBatch] = useState<string>(batchId || 'all')
-  const [filterOrigin, setFilterOrigin] = useState<string>('all') // 'all' | 'auto' | 'manual'
+  const [filterOrigin, setFilterOrigin] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState<SortField>('dueDate')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
-  // Auto-set batch filter when batchId prop changes
   useEffect(() => {
     if (batchId) {
       setFilterBatch(batchId)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId])
 
-  // Ref for print container
   const printRef = useRef<HTMLDivElement>(null)
 
-  // ---- Persist ----
+  // ---- Persist (localStorage + optional Supabase sync) ----
   useEffect(() => {
     localStorage.setItem(LS_KEY, JSON.stringify(reminders))
   }, [reminders])
 
-  // ---- Auto-refresh every minute for overdue detection ----
+  // Auto-refresh every minute
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60000)
     return () => clearInterval(interval)
@@ -267,14 +288,9 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
     const autoActive = active.filter(r => r.autoSource)
     const manualActive = active.filter(r => !r.autoSource)
     return {
-      active: active.length,
-      overdue: overdue.length,
-      dueToday: dueToday.length,
-      urgente: urgenteCount.length,
-      completedThisMonth: completedThisMonth.length,
-      next7: next7.length,
-      autoActive: autoActive.length,
-      manualActive: manualActive.length,
+      active: active.length, overdue: overdue.length, dueToday: dueToday.length,
+      urgente: urgenteCount.length, completedThisMonth: completedThisMonth.length,
+      next7: next7.length, autoActive: autoActive.length, manualActive: manualActive.length,
     }
   }, [reminders, today])
 
@@ -293,75 +309,37 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
       }
       return true
     })
-
     list.sort((a, b) => {
-      // Always push completed/cancelled to bottom
       const aActive = a.status !== 'completada' && a.status !== 'cancelada' ? 0 : 1
       const bActive = b.status !== 'completada' && b.status !== 'cancelada' ? 0 : 1
       if (aActive !== bActive) return aActive - bActive
-
       let cmp = 0
       switch (sortField) {
-        case 'dueDate': {
-          cmp = daysBetween(a.dueDate, b.dueDate)
-          break
-        }
-        case 'priority': {
-          cmp = (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99)
-          break
-        }
-        case 'category': {
-          cmp = a.category.localeCompare(b.category)
-          break
-        }
-        case 'createdAt': {
-          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          break
-        }
+        case 'dueDate': cmp = daysBetween(a.dueDate, b.dueDate); break
+        case 'priority': cmp = (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99); break
+        case 'category': cmp = a.category.localeCompare(b.category); break
+        case 'createdAt': cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
-
     return list
   }, [reminders, filterCategory, filterPriority, filterStatus, filterBatch, filterOrigin, searchQuery, sortField, sortDir])
 
   const activeReminders = useMemo(() => filteredReminders.filter(r => r.status !== 'completada' && r.status !== 'cancelada'), [filteredReminders])
   const completedReminders = useMemo(() => filteredReminders.filter(r => r.status === 'completada' || r.status === 'cancelada'), [filteredReminders])
-
   const hasUrgentAlert = stats.overdue > 0 || stats.urgente > 0
 
   // ---- CRUD Handlers ----
-  const openAddForm = () => {
-    setEditingId(null)
-    setFormData(createEmptyReminder())
-    setShowForm(true)
-  }
-
-  const openEditForm = (r: Reminder) => {
-    setEditingId(r.id)
-    setFormData({ ...r })
-    setShowForm(true)
-    setExpandedId(null)
-  }
-
-  const cancelForm = () => {
-    setShowForm(false)
-    setEditingId(null)
-    setFormData(createEmptyReminder())
-  }
+  const openAddForm = () => { setEditingId(null); setFormData(createEmptyReminder()); setShowForm(true) }
+  const openEditForm = (r: Reminder) => { setEditingId(r.id); setFormData({ ...r }); setShowForm(true); setExpandedId(null) }
+  const cancelForm = () => { setShowForm(false); setEditingId(null); setFormData(createEmptyReminder()) }
 
   const saveReminder = () => {
-    if (!formData.title.trim()) return
-    if (!formData.dueDate) return
-
+    if (!formData.title.trim() || !formData.dueDate) return
     if (editingId) {
       setReminders(prev => prev.map(r => r.id === editingId ? { ...formData } : r))
     } else {
-      const newReminder: Reminder = {
-        ...formData,
-        id: generateId(),
-        createdAt: new Date().toISOString(),
-      }
+      const newReminder: Reminder = { ...formData, id: generateId(), createdAt: new Date().toISOString() }
       setReminders(prev => [newReminder, ...prev])
     }
     cancelForm()
@@ -378,98 +356,51 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
       if (r.id !== id) return r
       const completedAt = new Date().toISOString()
       const updated = { ...r, status: 'completada' as ReminderStatus, completedAt }
-
-      // Recurrence logic: create next instance
-      if (r.recurrence !== 'unica' && r.recurrenceEnd) {
+      if (r.recurrence !== 'unica') {
         const nextDate = addRecurrenceDays(r.dueDate, r.recurrence)
-        if (nextDate <= r.recurrenceEnd) {
+        if (!r.recurrenceEnd || nextDate <= r.recurrenceEnd) {
           const nextReminder: Reminder = {
-            ...r,
-            id: generateId(),
-            dueDate: nextDate,
-            status: 'pendiente',
-            completedAt: '',
-            createdAt: new Date().toISOString(),
+            ...r, id: generateId(), dueDate: nextDate, status: 'pendiente',
+            completedAt: '', createdAt: new Date().toISOString(),
           }
-          setTimeout(() => {
-            setReminders(prev2 => [nextReminder, ...prev2])
-          }, 0)
+          setTimeout(() => { setReminders(prev2 => [nextReminder, ...prev2]) }, 0)
         }
-      } else if (r.recurrence !== 'unica') {
-        const nextDate = addRecurrenceDays(r.dueDate, r.recurrence)
-        const nextReminder: Reminder = {
-          ...r,
-          id: generateId(),
-          dueDate: nextDate,
-          status: 'pendiente',
-          completedAt: '',
-          createdAt: new Date().toISOString(),
-        }
-        setTimeout(() => {
-          setReminders(prev2 => [nextReminder, ...prev2])
-        }, 0)
       }
-
       return updated
     }))
   }
 
   const snoozeReminder = (id: string) => {
-    setReminders(prev => prev.map(r =>
-      r.id === id ? { ...r, dueDate: addDays(r.dueDate, 1) } : r
-    ))
+    setReminders(prev => prev.map(r => r.id === id ? { ...r, dueDate: addDays(r.dueDate, 1) } : r))
   }
 
   const completeAllOverdue = () => {
-    const overdueIds = reminders
-      .filter(r => r.status === 'pendiente' && daysBetween(today, r.dueDate) < 0)
-      .map(r => r.id)
-    if (overdueIds.length === 0) return
-    if (!confirm(`¿Marcar ${overdueIds.length} recordatorio(s) vencido(s) como completados?`)) return
+    const overdueIds = reminders.filter(r => r.status === 'pendiente' && daysBetween(today, r.dueDate) < 0).map(r => r.id)
+    if (overdueIds.length === 0 || !confirm(`¿Marcar ${overdueIds.length} recordatorio(s) vencido(s) como completados?`)) return
     setReminders(prev => prev.map(r =>
-      overdueIds.includes(r.id)
-        ? { ...r, status: 'completada' as ReminderStatus, completedAt: new Date().toISOString() }
-        : r
+      overdueIds.includes(r.id) ? { ...r, status: 'completada' as ReminderStatus, completedAt: new Date().toISOString() } : r
     ))
   }
 
   const clearOldCompleted = () => {
-    const thirtyDaysAgo = new Date()
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
     const oldIds = reminders.filter(r => {
       if (r.status !== 'completada' && r.status !== 'cancelada') return false
       if (!r.completedAt) return true
       return new Date(r.completedAt) < thirtyDaysAgo
     }).map(r => r.id)
-    if (oldIds.length === 0) return
-    if (!confirm(`¿Eliminar ${oldIds.length} recordatorio(s) completados/cancelados de hace más de 30 días?`)) return
+    if (oldIds.length === 0 || !confirm(`¿Eliminar ${oldIds.length} recordatorio(s) completados/cancelados de hace más de 30 días?`)) return
     setReminders(prev => prev.filter(r => !oldIds.includes(r.id)))
   }
 
-  const handlePrint = () => {
-    setPrintMode(true)
-    setTimeout(() => {
-      window.print()
-      setPrintMode(false)
-    }, 200)
-  }
-
+  const handlePrint = () => { setPrintMode(true); setTimeout(() => { window.print(); setPrintMode(false) }, 200) }
   const toggleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDir('asc')
-    }
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('asc') }
   }
+  const getBatchName = (bid: string) => { if (!bid) return null; const b = batches.find(b2 => b2.id === bid); return b ? b.name : null }
 
-  const getBatchName = (batchId: string) => {
-    if (!batchId) return null
-    const b = batches.find(b2 => b2.id === batchId)
-    return b ? b.name : null
-  }
-
-  // ---- Render helper for a single reminder card ----
+  // ---- Render helper ----
   const renderReminderCard = (r: Reminder, isOverdue: boolean) => {
     const catConfig = CATEGORY_CONFIG[r.category]
     const priConfig = PRIORITY_CONFIG[r.priority]
@@ -481,127 +412,53 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
     const isCancelled = r.status === 'cancelada'
 
     return (
-      <div
-        key={r.id}
-        className={`rounded-lg border ${priConfig.border} border-l-4 ${priConfig.bg} ${
-          isOverdue && r.status === 'pendiente' ? 'ring-2 ring-red-200 ring-offset-1' : ''
-        } ${isCancelled ? 'opacity-60' : ''} transition-all`}
-      >
+      <div key={r.id} className={`rounded-lg border ${priConfig.border} border-l-4 ${priConfig.bg} ${isOverdue && r.status === 'pendiente' ? 'ring-2 ring-red-200 ring-offset-1' : ''} ${isCancelled ? 'opacity-60' : ''} transition-all`}>
         <div className="p-3">
-          {/* Top row: icon, title, badges */}
           <div className="flex items-start gap-2">
             <CatIcon className={`w-4 h-4 mt-0.5 shrink-0 ${catConfig.color}`} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className={`text-xs font-bold ${isCancelled ? 'line-through text-stone-400' : 'text-stone-800'}`}>
-                  {r.title}
-                </span>
-                <Badge className={`${priConfig.badge} text-[9px] px-1.5 py-0 border-0 font-medium`}>
-                  {priConfig.label}
-                </Badge>
+                <span className={`text-xs font-bold ${isCancelled ? 'line-through text-stone-400' : 'text-stone-800'}`}>{r.title}</span>
+                <Badge className={`${priConfig.badge} text-[9px] px-1.5 py-0 border-0 font-medium`}>{priConfig.label}</Badge>
                 <Badge className={`${staConfig.badge} text-[9px] px-1.5 py-0 border-0 font-medium`}>
-                  {r.status === 'completada' && <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />}
-                  {staConfig.label}
+                  {r.status === 'completada' && <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />}{staConfig.label}
                 </Badge>
                 {r.autoSource && (
                   <Badge className={`${AUTO_SOURCE_COLORS[r.autoSource] || 'bg-stone-100 text-stone-500'} text-[8px] px-1.5 py-0 border font-medium flex items-center gap-0.5`}>
-                    <Sparkles className="w-2 h-2" />
-                    {AUTO_SOURCE_LABELS[r.autoSource] || 'Auto'}
+                    <Sparkles className="w-2 h-2" />{AUTO_SOURCE_LABELS[r.autoSource] || 'Auto'}
                   </Badge>
                 )}
               </div>
-              {r.description && (
-                <p className="text-[10px] text-stone-500 mt-0.5 line-clamp-1">
-                  {r.description}
-                </p>
-              )}
+              {r.description && <p className="text-[10px] text-stone-500 mt-0.5 line-clamp-1">{r.description}</p>}
             </div>
           </div>
-
-          {/* Second row: date, batch, cost, recurrence */}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <span className={`text-[10px] flex items-center gap-0.5 ${countdown.className}`}>
-              <Calendar className="w-3 h-3" />
-              {r.dueDate}
-              {r.dueTime && <Timer className="w-2.5 h-2.5 ml-0.5" />}
-              {r.dueTime && <span>{r.dueTime}</span>}
+              <Calendar className="w-3 h-3" />{r.dueDate}
+              {r.dueTime && <><Timer className="w-2.5 h-2.5 ml-0.5" /><span>{r.dueTime}</span></>}
               <span className="ml-1">· {countdown.text}</span>
             </span>
-            {batchName && (
-              <Badge variant="outline" className="text-[8px] px-1 py-0">{batchName}</Badge>
-            )}
-            {r.estimatedCost > 0 && (
-              <span className="text-[10px] text-green-700 font-medium">{fmtRD(r.estimatedCost)}</span>
-            )}
-            {r.recurrence !== 'unica' && (
-              <span className="text-[9px] text-stone-400 flex items-center gap-0.5">
-                <RotateCcw className="w-2.5 h-2.5" />
-                {RECURRENCE_LABELS[r.recurrence]}
-              </span>
-            )}
+            {batchName && <Badge variant="outline" className="text-[8px] px-1 py-0">{batchName}</Badge>}
+            {r.estimatedCost > 0 && <span className="text-[10px] text-green-700 font-medium">{fmtRD(r.estimatedCost)}</span>}
+            {r.recurrence !== 'unica' && <span className="text-[9px] text-stone-400 flex items-center gap-0.5"><RotateCcw className="w-2.5 h-2.5" />{RECURRENCE_LABELS[r.recurrence]}</span>}
           </div>
-
-          {/* Action buttons */}
           <div className="flex items-center gap-1 mt-2">
-            {r.status !== 'completada' && r.status !== 'cancelada' && (
-              <>
-                <Button
-                  variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                  onClick={() => completeReminder(r.id)} title="Completar"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-500 hover:text-blue-600 hover:bg-blue-50"
-                  onClick={() => snoozeReminder(r.id)} title="Posponer 24h"
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                </Button>
-              </>
-            )}
-            <Button
-              variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-600 hover:bg-stone-50"
-              onClick={() => openEditForm(r)} title="Editar"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-red-500 hover:bg-red-50"
-              onClick={() => deleteReminder(r.id)} title="Eliminar"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-600 hover:bg-stone-50 ml-auto"
-              onClick={() => setExpandedId(isExpanded ? null : r.id)}
-              title="Ver detalles"
-            >
+            {r.status !== 'completada' && r.status !== 'cancelada' && (<>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => completeReminder(r.id)} title="Completar"><CheckCircle2 className="w-3.5 h-3.5" /></Button>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-500 hover:text-blue-600 hover:bg-blue-50" onClick={() => snoozeReminder(r.id)} title="Posponer 24h"><Clock className="w-3.5 h-3.5" /></Button>
+            </>)}
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-600 hover:bg-stone-50" onClick={() => openEditForm(r)} title="Editar"><Edit3 className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-red-500 hover:bg-red-50" onClick={() => deleteReminder(r.id)} title="Eliminar"><Trash2 className="w-3 h-3" /></Button>
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-600 hover:bg-stone-50 ml-auto" onClick={() => setExpandedId(isExpanded ? null : r.id)} title="Ver detalles">
               {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             </Button>
           </div>
-
-          {/* Expanded details */}
           {isExpanded && (
             <div className="mt-2 pt-2 border-t border-stone-200 space-y-1.5">
-              {r.assignedTo && (
-                <p className="text-[10px] text-stone-500">
-                  <span className="font-medium text-stone-600">Asignado a:</span> {r.assignedTo}
-                </p>
-              )}
-              {r.notes && (
-                <p className="text-[10px] text-stone-500">
-                  <span className="font-medium text-stone-600">Notas:</span> {r.notes}
-                </p>
-              )}
-              {r.recurrence !== 'unica' && r.recurrenceEnd && (
-                <p className="text-[10px] text-stone-400">
-                  Recurrencia hasta: {r.recurrenceEnd}
-                </p>
-              )}
-              <p className="text-[9px] text-stone-300">
-                Creado: {new Date(r.createdAt).toLocaleString('es-DO')}
-                {r.completedAt && ` · Completado: ${new Date(r.completedAt).toLocaleString('es-DO')}`}
-              </p>
+              {r.assignedTo && <p className="text-[10px] text-stone-500"><span className="font-medium text-stone-600">Asignado a:</span> {r.assignedTo}</p>}
+              {r.notes && <p className="text-[10px] text-stone-500"><span className="font-medium text-stone-600">Notas:</span> {r.notes}</p>}
+              {r.recurrence !== 'unica' && r.recurrenceEnd && <p className="text-[10px] text-stone-400">Recurrencia hasta: {r.recurrenceEnd}</p>}
+              <p className="text-[9px] text-stone-300">Creado: {new Date(r.createdAt).toLocaleString('es-DO')}{r.completedAt && ` · Completado: ${new Date(r.completedAt).toLocaleString('es-DO')}`}</p>
             </div>
           )}
         </div>
@@ -639,16 +496,8 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
                 <TableRow key={r.id}>
                   <TableCell className="text-[10px]">{CATEGORY_CONFIG[r.category].label}</TableCell>
                   <TableCell className="text-[10px] font-medium">{r.title}</TableCell>
-                  <TableCell className="text-[10px]">
-                    <Badge className={`${PRIORITY_CONFIG[r.priority].badge} text-[8px] border-0`}>
-                      {PRIORITY_CONFIG[r.priority].label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-[10px]">
-                    <Badge className={`${STATUS_CONFIG[r.status].badge} text-[8px] border-0`}>
-                      {STATUS_CONFIG[r.status].label}
-                    </Badge>
-                  </TableCell>
+                  <TableCell className="text-[10px]"><Badge className={`${PRIORITY_CONFIG[r.priority].badge} text-[8px] border-0`}>{PRIORITY_CONFIG[r.priority].label}</Badge></TableCell>
+                  <TableCell className="text-[10px]"><Badge className={`${STATUS_CONFIG[r.status].badge} text-[8px] border-0`}>{STATUS_CONFIG[r.status].label}</Badge></TableCell>
                   <TableCell className="text-[10px]">{r.dueDate} {r.dueTime}</TableCell>
                   <TableCell className="text-[10px]">{batchName || '-'}</TableCell>
                   <TableCell className="text-[10px] text-right">{r.estimatedCost > 0 ? fmtRD(r.estimatedCost) : '-'}</TableCell>
@@ -658,18 +507,8 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
             })}
           </TableBody>
         </Table>
-        {activeReminders.length === 0 && (
-          <p className="text-center text-sm text-stone-400 py-8">No hay recordatorios activos.</p>
-        )}
-        <div className="mt-4 text-[9px] text-stone-400 text-center">
-          Total activos: {stats.active} · Urgentes: {stats.urgente} · Vencidos: {stats.overdue}
-        </div>
-        <style jsx>{`
-          @media print {
-            body * { visibility: hidden; }
-            div[class*="print"] > * { visibility: visible; }
-          }
-        `}</style>
+        {activeReminders.length === 0 && <p className="text-center text-sm text-stone-400 py-8">No hay recordatorios activos.</p>}
+        <div className="mt-4 text-[9px] text-stone-400 text-center">Total activos: {stats.active} · Urgentes: {stats.urgente} · Vencidos: {stats.overdue}</div>
       </div>
     )
   }
@@ -685,10 +524,7 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
           <AlertTriangle className="h-4 w-4 text-red-600" />
           <AlertDescription className="text-xs text-red-800">
             <strong>¡Atención!</strong> Tienes{' '}
-            <button
-              className="underline font-bold"
-              onClick={() => { setFilterPriority('urgente'); setFilterStatus('pendiente') }}
-            >
+            <button className="underline font-bold" onClick={() => { setFilterPriority('urgente'); setFilterStatus('pendiente') }}>
               {stats.overdue + stats.urgente} recordatorio(s) urgente(s)
             </button>
             {stats.overdue > 0 && ` (${stats.overdue} vencido${stats.overdue !== 1 ? 's' : ''})`}
@@ -701,74 +537,42 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         <Card className="border-l-4 border-l-blue-400">
           <CardContent className="p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Bell className="w-3.5 h-3.5 text-blue-500" />
-              <span className="text-[10px] font-medium text-stone-500">Activos</span>
-            </div>
+            <div className="flex items-center gap-1.5 mb-1"><Bell className="w-3.5 h-3.5 text-blue-500" /><span className="text-[10px] font-medium text-stone-500">Activos</span></div>
             <p className="text-lg font-bold text-blue-700">{stats.active}</p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-red-500">
           <CardContent className="p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
-              <span className="text-[10px] font-medium text-stone-500">Urgentes</span>
-            </div>
+            <div className="flex items-center gap-1.5 mb-1"><AlertTriangle className="w-3.5 h-3.5 text-red-500" /><span className="text-[10px] font-medium text-stone-500">Urgentes</span></div>
             <p className="text-lg font-bold text-red-700">{stats.urgente + stats.overdue}</p>
             <p className="text-[9px] text-stone-400">{stats.overdue} vencidos</p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-amber-500">
           <CardContent className="p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Clock className="w-3.5 h-3.5 text-amber-500" />
-              <span className="text-[10px] font-medium text-stone-500">Próx. 7 días</span>
-            </div>
+            <div className="flex items-center gap-1.5 mb-1"><Clock className="w-3.5 h-3.5 text-amber-500" /><span className="text-[10px] font-medium text-stone-500">Próx. 7 días</span></div>
             <p className="text-lg font-bold text-amber-700">{stats.next7}</p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-green-500">
           <CardContent className="p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-              <span className="text-[10px] font-medium text-stone-500">Completadas/Mes</span>
-            </div>
+            <div className="flex items-center gap-1.5 mb-1"><CheckCircle2 className="w-3.5 h-3.5 text-green-500" /><span className="text-[10px] font-medium text-stone-500">Completadas/Mes</span></div>
             <p className="text-lg font-bold text-green-700">{stats.completedThisMonth}</p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-violet-500 hidden lg:block">
           <CardContent className="p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <ClipboardCheck className="w-3.5 h-3.5 text-violet-500" />
-              <span className="text-[10px] font-medium text-stone-500">Vencidos</span>
-            </div>
+            <div className="flex items-center gap-1.5 mb-1"><ClipboardCheck className="w-3.5 h-3.5 text-violet-500" /><span className="text-[10px] font-medium text-stone-500">Vencidos</span></div>
             <p className="text-lg font-bold text-red-600">{stats.overdue}</p>
-            {stats.overdue > 0 && (
-              <button
-                className="text-[9px] text-violet-600 hover:underline cursor-pointer"
-                onClick={completeAllOverdue}
-              >
-                Completar todos →
-              </button>
-            )}
+            {stats.overdue > 0 && <button className="text-[9px] text-violet-600 hover:underline cursor-pointer" onClick={completeAllOverdue}>Completar todos →</button>}
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-indigo-500 hidden lg:block">
           <CardContent className="p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-              <span className="text-[10px] font-medium text-stone-500">Auto-generadas</span>
-            </div>
+            <div className="flex items-center gap-1.5 mb-1"><Sparkles className="w-3.5 h-3.5 text-indigo-500" /><span className="text-[10px] font-medium text-stone-500">Auto-generadas</span></div>
             <p className="text-lg font-bold text-indigo-700">{stats.autoActive}</p>
             <p className="text-[9px] text-stone-400">{stats.manualActive} manuales</p>
-            {stats.autoActive > 0 && (
-              <button
-                className="text-[9px] text-indigo-600 hover:underline cursor-pointer"
-                onClick={() => setFilterOrigin('auto')}
-              >
-                Ver auto →
-              </button>
-            )}
+            {stats.autoActive > 0 && <button className="text-[9px] text-indigo-600 hover:underline cursor-pointer" onClick={() => setFilterOrigin('auto')}>Ver auto →</button>}
           </CardContent>
         </Card>
       </div>
@@ -777,119 +581,50 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
       <Card>
         <CardContent className="p-3">
           <div className="flex flex-wrap items-center gap-2">
-            {/* Search */}
             <div className="relative flex-1 min-w-[140px]">
               <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-stone-400" />
-              <Input
-                placeholder="Buscar recordatorio..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="h-8 text-xs pl-7"
-              />
+              <Input placeholder="Buscar recordatorio..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="h-8 text-xs pl-7" />
             </div>
-
-            {/* Filters */}
             <div className="flex flex-wrap items-center gap-1.5">
               <Filter className="w-3.5 h-3.5 text-stone-400" />
-
-              <select
-                value={filterCategory}
-                onChange={e => setFilterCategory(e.target.value)}
-                className="h-8 text-[10px] rounded-md border border-input bg-background px-2"
-              >
+              <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="h-8 text-[10px] rounded-md border border-input bg-background px-2">
                 <option value="all">Todas categorías</option>
-                {(Object.keys(CATEGORY_CONFIG) as ReminderCategory[]).map(k => (
-                  <option key={k} value={k}>{CATEGORY_CONFIG[k].label}</option>
-                ))}
+                {(Object.keys(CATEGORY_CONFIG) as ReminderCategory[]).map(k => <option key={k} value={k}>{CATEGORY_CONFIG[k].label}</option>)}
               </select>
-
-              <select
-                value={filterPriority}
-                onChange={e => setFilterPriority(e.target.value)}
-                className="h-8 text-[10px] rounded-md border border-input bg-background px-2"
-              >
+              <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} className="h-8 text-[10px] rounded-md border border-input bg-background px-2">
                 <option value="all">Toda prioridad</option>
-                {(Object.keys(PRIORITY_CONFIG) as ReminderPriority[]).map(k => (
-                  <option key={k} value={k}>{PRIORITY_CONFIG[k].label}</option>
-                ))}
+                {(Object.keys(PRIORITY_CONFIG) as ReminderPriority[]).map(k => <option key={k} value={k}>{PRIORITY_CONFIG[k].label}</option>)}
               </select>
-
-              <select
-                value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                className="h-8 text-[10px] rounded-md border border-input bg-background px-2"
-              >
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="h-8 text-[10px] rounded-md border border-input bg-background px-2">
                 <option value="all">Todo estado</option>
-                {(Object.keys(STATUS_CONFIG) as ReminderStatus[]).map(k => (
-                  <option key={k} value={k}>{STATUS_CONFIG[k].label}</option>
-                ))}
+                {(Object.keys(STATUS_CONFIG) as ReminderStatus[]).map(k => <option key={k} value={k}>{STATUS_CONFIG[k].label}</option>)}
               </select>
-
               {batches.length > 0 && (
-                <select
-                  value={filterBatch}
-                  onChange={e => setFilterBatch(e.target.value)}
-                  className="h-8 text-[10px] rounded-md border border-input bg-background px-2"
-                >
+                <select value={filterBatch} onChange={e => setFilterBatch(e.target.value)} className="h-8 text-[10px] rounded-md border border-input bg-background px-2">
                   <option value="all">Todos lotes</option>
-                  {batches.map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
+                  {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               )}
-              <select
-                value={filterOrigin}
-                onChange={e => setFilterOrigin(e.target.value)}
-                className="h-8 text-[10px] rounded-md border border-input bg-background px-2"
-              >
+              <select value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)} className="h-8 text-[10px] rounded-md border border-input bg-background px-2">
                 <option value="all">Todo origen</option>
                 <option value="auto">Auto-generadas</option>
                 <option value="manual">Manuales</option>
               </select>
             </div>
-
-            {/* Sort */}
-            <button
-              onClick={() => toggleSort('dueDate')}
-              className="h-8 text-[10px] rounded-md border border-input bg-background px-2 flex items-center gap-1 hover:bg-stone-50 transition-colors"
-              title="Ordenar por fecha"
-            >
-              <ArrowUpDown className="w-3 h-3" />
-              Fecha
-              {sortField === 'dueDate' && <span className="text-stone-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
+            <button onClick={() => toggleSort('dueDate')} className="h-8 text-[10px] rounded-md border border-input bg-background px-2 flex items-center gap-1 hover:bg-stone-50 transition-colors" title="Ordenar por fecha">
+              <ArrowUpDown className="w-3 h-3" />Fecha{sortField === 'dueDate' && <span className="text-stone-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
             </button>
-
-            <button
-              onClick={() => toggleSort('priority')}
-              className="h-8 text-[10px] rounded-md border border-input bg-background px-2 flex items-center gap-1 hover:bg-stone-50 transition-colors"
-              title="Ordenar por prioridad"
-            >
-              <ArrowUpDown className="w-3 h-3" />
-              Prioridad
-              {sortField === 'priority' && <span className="text-stone-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
+            <button onClick={() => toggleSort('priority')} className="h-8 text-[10px] rounded-md border border-input bg-background px-2 flex items-center gap-1 hover:bg-stone-50 transition-colors" title="Ordenar por prioridad">
+              <ArrowUpDown className="w-3 h-3" />Prioridad{sortField === 'priority' && <span className="text-stone-400">{sortDir === 'asc' ? '↑' : '↓'}</span>}
             </button>
           </div>
-
           <Separator className="my-2.5" />
-
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={openAddForm} className="gap-1 text-xs h-8 bg-green-600 hover:bg-green-700 text-white">
-              <Plus className="w-3.5 h-3.5" /> Agregar Recordatorio
-            </Button>
-            <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1 text-[10px] h-7">
-              <Printer className="w-3 h-3" /> Imprimir
-            </Button>
-            {stats.overdue > 0 && (
-              <Button variant="outline" size="sm" onClick={completeAllOverdue} className="gap-1 text-[10px] h-7 text-red-600 border-red-200 hover:bg-red-50">
-                <CheckCircle2 className="w-3 h-3" /> Completar todo vencido
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={clearOldCompleted} className="gap-1 text-[10px] h-7 text-stone-500">
-              <Trash2 className="w-3 h-3" /> Limpiar completadas
-            </Button>
-            <span className="ml-auto text-[10px] text-stone-400">
-              {filteredReminders.length} resultado{filteredReminders.length !== 1 ? 's' : ''}
-            </span>
+            <Button size="sm" onClick={openAddForm} className="gap-1 text-xs h-8 bg-green-600 hover:bg-green-700 text-white"><Plus className="w-3.5 h-3.5" /> Agregar Recordatorio</Button>
+            <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1 text-[10px] h-7"><Printer className="w-3 h-3" /> Imprimir</Button>
+            {stats.overdue > 0 && <Button variant="outline" size="sm" onClick={completeAllOverdue} className="gap-1 text-[10px] h-7 text-red-600 border-red-200 hover:bg-red-50"><CheckCircle2 className="w-3 h-3" /> Completar todo vencido</Button>}
+            <Button variant="outline" size="sm" onClick={clearOldCompleted} className="gap-1 text-[10px] h-7 text-stone-500"><Trash2 className="w-3 h-3" /> Limpiar completadas</Button>
+            <span className="ml-auto text-[10px] text-stone-400">{filteredReminders.length} resultado{filteredReminders.length !== 1 ? 's' : ''}</span>
           </div>
         </CardContent>
       </Card>
@@ -906,260 +641,106 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                {/* Title */}
                 <div className="space-y-1 sm:col-span-2">
                   <Label className="text-[10px]">Título *</Label>
-                  <Input
-                    value={formData.title}
-                    onChange={e => setFormData(p => ({ ...p, title: e.target.value }))}
-                    className="h-8 text-xs"
-                    placeholder="Ej: Comprar alimento postura"
-                  />
+                  <Input value={formData.title} onChange={e => setFormData(p => ({ ...p, title: e.target.value }))} className="h-8 text-xs" placeholder="Ej: Comprar alimento postura" />
                 </div>
-
-                {/* Description */}
                 <div className="space-y-1 sm:col-span-2">
                   <Label className="text-[10px]">Descripción</Label>
-                  <Input
-                    value={formData.description}
-                    onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
-                    className="h-8 text-xs"
-                    placeholder="Descripción breve..."
-                  />
+                  <Input value={formData.description} onChange={e => setFormData(p => ({ ...p, description: e.target.value }))} className="h-8 text-xs" placeholder="Descripción breve..." />
                 </div>
-
-                {/* Category */}
                 <div className="space-y-1">
                   <Label className="text-[10px]">Categoría</Label>
-                  <select
-                    value={formData.category}
-                    onChange={e => setFormData(p => ({ ...p, category: e.target.value as ReminderCategory }))}
-                    className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full"
-                  >
-                    {(Object.keys(CATEGORY_CONFIG) as ReminderCategory[]).map(k => (
-                      <option key={k} value={k}>{CATEGORY_CONFIG[k].label}</option>
-                    ))}
+                  <select value={formData.category} onChange={e => setFormData(p => ({ ...p, category: e.target.value as ReminderCategory }))} className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full">
+                    {(Object.keys(CATEGORY_CONFIG) as ReminderCategory[]).map(k => <option key={k} value={k}>{CATEGORY_CONFIG[k].label}</option>)}
                   </select>
                 </div>
-
-                {/* Priority */}
                 <div className="space-y-1">
                   <Label className="text-[10px]">Prioridad</Label>
-                  <select
-                    value={formData.priority}
-                    onChange={e => setFormData(p => ({ ...p, priority: e.target.value as ReminderPriority }))}
-                    className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full"
-                  >
-                    {(Object.keys(PRIORITY_CONFIG) as ReminderPriority[]).map(k => (
-                      <option key={k} value={k}>{PRIORITY_CONFIG[k].label}</option>
-                    ))}
+                  <select value={formData.priority} onChange={e => setFormData(p => ({ ...p, priority: e.target.value as ReminderPriority }))} className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full">
+                    {(Object.keys(PRIORITY_CONFIG) as ReminderPriority[]).map(k => <option key={k} value={k}>{PRIORITY_CONFIG[k].label}</option>)}
                   </select>
                 </div>
-
-                {/* Due Date */}
                 <div className="space-y-1">
                   <Label className="text-[10px]">Fecha Vencimiento *</Label>
-                  <Input
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={e => setFormData(p => ({ ...p, dueDate: e.target.value }))}
-                    className="h-8 text-xs"
-                  />
+                  <Input type="date" value={formData.dueDate} onChange={e => setFormData(p => ({ ...p, dueDate: e.target.value }))} className="h-8 text-xs" />
                 </div>
-
-                {/* Due Time */}
                 <div className="space-y-1">
-                  <Label className="text-[10px]">Hora (opcional)</Label>
-                  <Input
-                    type="time"
-                    value={formData.dueTime}
-                    onChange={e => setFormData(p => ({ ...p, dueTime: e.target.value }))}
-                    className="h-8 text-xs"
-                  />
+                  <Label className="text-[10px]">Hora</Label>
+                  <Input type="time" value={formData.dueTime} onChange={e => setFormData(p => ({ ...p, dueTime: e.target.value }))} className="h-8 text-xs" />
                 </div>
-
-                {/* Batch */}
                 <div className="space-y-1">
-                  <Label className="text-[10px]">Lote (opcional)</Label>
-                  <select
-                    value={formData.batchId}
-                    onChange={e => setFormData(p => ({ ...p, batchId: e.target.value }))}
-                    className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full"
-                  >
-                    <option value="">Ninguno</option>
-                    {batches.map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
+                  <Label className="text-[10px]">Lote</Label>
+                  <select value={formData.batchId} onChange={e => setFormData(p => ({ ...p, batchId: e.target.value }))} className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full">
+                    <option value="">Sin lote</option>
+                    {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                 </div>
-
-                {/* Recurrence */}
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Costo Est. (RD$)</Label>
+                  <Input type="number" value={formData.estimatedCost || ''} onChange={e => setFormData(p => ({ ...p, estimatedCost: parseFloat(e.target.value) || 0 }))} className="h-8 text-xs" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <div className="space-y-1">
                   <Label className="text-[10px]">Recurrencia</Label>
-                  <select
-                    value={formData.recurrence}
-                    onChange={e => setFormData(p => ({ ...p, recurrence: e.target.value as ReminderRecurrence }))}
-                    className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full"
-                  >
-                    {(Object.keys(RECURRENCE_LABELS) as ReminderRecurrence[]).map(k => (
-                      <option key={k} value={k}>{RECURRENCE_LABELS[k]}</option>
-                    ))}
+                  <select value={formData.recurrence} onChange={e => setFormData(p => ({ ...p, recurrence: e.target.value as ReminderRecurrence }))} className="h-8 text-xs rounded-md border border-input bg-background px-2 w-full">
+                    {(Object.keys(RECURRENCE_LABELS) as ReminderRecurrence[]).map(k => <option key={k} value={k}>{RECURRENCE_LABELS[k]}</option>)}
                   </select>
                 </div>
-
-                {/* Recurrence End */}
                 {formData.recurrence !== 'unica' && (
                   <div className="space-y-1">
-                    <Label className="text-[10px]">Fin Recurrencia</Label>
-                    <Input
-                      type="date"
-                      value={formData.recurrenceEnd}
-                      onChange={e => setFormData(p => ({ ...p, recurrenceEnd: e.target.value }))}
-                      className="h-8 text-xs"
-                      placeholder="Fecha límite"
-                    />
+                    <Label className="text-[10px]">Hasta</Label>
+                    <Input type="date" value={formData.recurrenceEnd || ''} onChange={e => setFormData(p => ({ ...p, recurrenceEnd: e.target.value }))} className="h-8 text-xs" />
                   </div>
                 )}
-
-                {/* Estimated Cost */}
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Costo Estimado (RD$)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={formData.estimatedCost || ''}
-                    onChange={e => setFormData(p => ({ ...p, estimatedCost: parseFloat(e.target.value) || 0 }))}
-                    className="h-8 text-xs"
-                    placeholder="0.00"
-                  />
-                </div>
-
-                {/* Assigned To */}
                 <div className="space-y-1">
                   <Label className="text-[10px]">Asignado a</Label>
-                  <Input
-                    value={formData.assignedTo}
-                    onChange={e => setFormData(p => ({ ...p, assignedTo: e.target.value }))}
-                    className="h-8 text-xs"
-                    placeholder="Nombre..."
-                  />
+                  <Input value={formData.assignedTo} onChange={e => setFormData(p => ({ ...p, assignedTo: e.target.value }))} className="h-8 text-xs" placeholder="Nombre..." />
                 </div>
               </div>
-
-              {/* Notes */}
-              <div className="space-y-1">
-                <Label className="text-[10px]">Notas</Label>
-                <Textarea
-                  value={formData.notes}
-                  onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
-                  className="text-xs min-h-[60px]"
-                  placeholder="Notas adicionales..."
-                  rows={2}
-                />
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-2 pt-1">
-                <Button size="sm" onClick={saveReminder} className="gap-1 text-xs h-8 bg-green-600 hover:bg-green-700 text-white">
-                  <Save className="w-3.5 h-3.5" /> {editingId ? 'Guardar Cambios' : 'Guardar'}
-                </Button>
-                <Button variant="outline" size="sm" onClick={cancelForm} className="gap-1 text-xs h-8">
-                  <X className="w-3.5 h-3.5" /> Cancelar
-                </Button>
-                {/* Priority preview */}
-                <div className="ml-auto flex items-center gap-1.5">
-                  <span className="text-[9px] text-stone-400">Vista previa:</span>
-                  <Badge className={`${PRIORITY_CONFIG[formData.priority].badge} text-[9px] px-1.5 py-0 border-0`}>
-                    {PRIORITY_CONFIG[formData.priority].label}
-                  </Badge>
-                </div>
+              <Textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} placeholder="Notas adicionales..." className="min-h-[60px] text-xs" />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={saveReminder} className="gap-1 text-xs h-8 bg-green-600 hover:bg-green-700 text-white"><Save className="w-3.5 h-3.5" /> Guardar</Button>
+                <Button size="sm" variant="outline" onClick={cancelForm} className="gap-1 text-xs h-8"><X className="w-3.5 h-3.5" /> Cancelar</Button>
               </div>
             </CardContent>
           </Card>
         </CollapsibleContent>
       </Collapsible>
 
-      {/* ---- Active Reminders List ---- */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Bell className="w-4 h-4 text-blue-600" />
-            Recordatorios Activos
-            <Badge variant="outline" className="text-[9px] ml-1">{activeReminders.length}</Badge>
-          </CardTitle>
-          <CardDescription className="text-[11px]">
-            Lista de recordatorios pendientes y en progreso. Haz clic en 👁 para ver detalles.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {activeReminders.length > 0 ? (
-            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-              {activeReminders.map(r => {
-                const isOverdue = r.status === 'pendiente' && daysBetween(today, r.dueDate) < 0
-                return renderReminderCard(r, isOverdue)
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-10 text-stone-400">
+      {/* ---- Active Reminders ---- */}
+      <div className="space-y-2">
+        {activeReminders.length === 0 ? (
+          <Card>
+            <CardContent className="p-10 text-center text-stone-400">
               <Bell className="w-10 h-10 mx-auto mb-2 opacity-20" />
               <p className="text-xs">No hay recordatorios activos.</p>
-              <p className="text-[10px] text-stone-300 mt-1">Haz clic en &quot;Agregar Recordatorio&quot; para crear uno.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              <p className="text-[10px] mt-1">Crea uno nuevo o espera las alertas automaticas.</p>
+            </CardContent>
+          </Card>
+        ) : activeReminders.map(r => renderReminderCard(r, daysBetween(today, r.dueDate) < 0 && r.status === 'pendiente'))}
+      </div>
 
-      {/* ---- Completed Section ---- */}
-      <Collapsible open={showCompleted} onOpenChange={setShowCompleted}>
-        <Card>
+      {/* ---- Completed Reminders ---- */}
+      {completedReminders.length > 0 && (
+        <Collapsible open={showCompleted}>
           <CollapsibleTrigger className="w-full">
-            <CardHeader className="pb-2 cursor-pointer hover:bg-stone-50/50 transition-colors rounded-t-lg">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm flex items-center gap-2 text-stone-500">
-                  <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  Completadas y Canceladas
-                  <Badge variant="outline" className="text-[9px] ml-1">{completedReminders.length}</Badge>
-                </CardTitle>
-                {showCompleted ? (
-                  <ChevronUp className="w-4 h-4 text-stone-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-stone-400" />
-                )}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-stone-50 hover:bg-stone-100 transition-colors cursor-pointer">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-stone-500" />
+                <span className="text-sm font-medium text-stone-700">Completadas y Canceladas ({completedReminders.length})</span>
               </div>
-            </CardHeader>
+              <ChevronDown className={`w-4 h-4 text-stone-400 transition-transform ${showCompleted ? 'rotate-180' : ''}`} />
+            </div>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <CardContent>
-              {completedReminders.length > 0 ? (
-                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                  {completedReminders.map(r => renderReminderCard(r, false))}
-                </div>
-              ) : (
-                <div className="text-center py-6 text-stone-300">
-                  <CheckCircle2 className="w-8 h-8 mx-auto mb-1 opacity-20" />
-                  <p className="text-[10px]">No hay recordatorios completados ni cancelados.</p>
-                </div>
-              )}
-            </CardContent>
+            <div className="mt-2 space-y-2 max-h-96 overflow-y-auto">
+              {completedReminders.map(r => renderReminderCard(r, false))}
+            </div>
           </CollapsibleContent>
-        </Card>
-      </Collapsible>
-
-      {/* ---- Print styles ---- */}
-      <style jsx global>{`
-        @media print {
-          body > *:not(#reminders-panel) {
-            display: none !important;
-          }
-          #reminders-panel > *:not(.print\\:block) {
-            display: none !important;
-          }
-          .print\\:block {
-            display: block !important;
-          }
-        }
-      `}</style>
+        </Collapsible>
+      )}
     </div>
   )
 }

@@ -44,6 +44,8 @@ import {
   RefreshCw, Bell, Map, FileOutput, ClipboardCheck, ChevronLeft, ChevronDown, ChevronUp, Eye,
   Plus, Trash2, Printer,
 } from 'lucide-react'
+import FarmSetup from '@/components/farm-setup'
+import { isSupabaseConfigured, getFarmId } from '@/lib/supabase'
 
 // ================================================================
 // HISTORY VIEW COMPONENT (3-tab: Diario / Semanal / Mensual)
@@ -491,7 +493,24 @@ function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord,
 export default function Home() {
   // ---- Hydration guard ----
   const [mounted, setMounted] = useState(false)
+  const [showFarmSetup, setShowFarmSetup] = useState(false)
   useEffect(() => { setMounted(true) }, [])
+
+  // ---- Farm setup check ----
+  useEffect(() => {
+    if (mounted && isSupabaseConfigured() && !getFarmId()) {
+      setShowFarmSetup(true)
+    }
+  }, [mounted])
+
+  const handleFarmConnected = useCallback(() => {
+    setShowFarmSetup(false)
+    window.location.reload()
+  }, [])
+
+  const handleDismissFarmSetup = useCallback(() => {
+    setShowFarmSetup(false)
+  }, [])
 
   // ---- Navigation state ----
   const [view, setView] = useState<'dashboard' | 'lot-detail' | 'reports' | 'history' | 'map' | 'reminders'>('dashboard')
@@ -745,6 +764,11 @@ export default function Home() {
   // ================================================================
   if (!mounted) {
     return <div className="min-h-screen flex flex-col bg-gradient-to-br from-stone-50 to-amber-50/30" />
+  }
+
+  // Show farm setup if Supabase is configured but no farm is connected
+  if (showFarmSetup) {
+    return <FarmSetup onFarmConnected={handleFarmConnected} onDismiss={handleDismissFarmSetup} />
   }
 
   return (
