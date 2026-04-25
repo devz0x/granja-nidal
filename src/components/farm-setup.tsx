@@ -12,6 +12,8 @@ import {
   Database, CheckCircle2, AlertTriangle, Upload, Loader2,
   ArrowRight, RefreshCw, HardDrive,
 } from 'lucide-react'
+import { useAuth } from '@/hooks/use-auth'
+import { isSupabaseConfigured } from '@/lib/supabase'
 
 interface FarmSetupProps {
   onFarmConnected: () => void
@@ -19,6 +21,7 @@ interface FarmSetupProps {
 }
 
 export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps) {
+  const { user, loading: authLoading, isAuthenticated } = useAuth()
   const [mode, setMode] = useState<'create' | 'connect'>('create')
   const [farmName, setFarmName] = useState('')
   const [farmSlug, setFarmSlug] = useState('')
@@ -29,8 +32,7 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
   const [migrating, setMigrating] = useState(false)
   const [migrationResult, setMigrationResult] = useState<Record<string, unknown> | null>(null)
 
-  const supabaseConfigured = typeof window !== 'undefined' &&
-    !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  const supabaseConfigured = typeof window !== 'undefined' && isSupabaseConfigured()
 
   // Auto-generate slug from name
   const handleNameChange = (name: string) => {
@@ -52,6 +54,10 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
       setError('El slug es requerido.')
       return
     }
+    if (!user?.id) {
+      setError('Debes iniciar sesión para crear una granja.')
+      return
+    }
 
     setLoading(true)
     setError('')
@@ -60,7 +66,7 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
       const res = await fetch('/api/farm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: farmName, slug: farmSlug }),
+        body: JSON.stringify({ name: farmName, slug: farmSlug, user_id: user.id }),
       })
       const data = await res.json()
 
@@ -95,6 +101,10 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
       setError('Ingresa el ID de la granja.')
       return
     }
+    if (!user?.id) {
+      setError('Debes iniciar sesión para conectar una granja.')
+      return
+    }
 
     setLoading(true)
     setError('')
@@ -105,6 +115,12 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
 
       if (data.error || !data.farm) {
         setError('Granja no encontrada. Verifica el ID.')
+        return
+      }
+
+      // Verify the farm belongs to the current user
+      if (data.farm.user_id && data.farm.user_id !== user.id) {
+        setError('Esta granja no te pertenece.')
         return
       }
 
@@ -171,6 +187,51 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
     }
   }
 
+  // Show auth loading state
+  if (authLoading && supabaseConfigured) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-stone-50 to-amber-50/30 p-4">
+        <div className="w-full max-w-lg space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-amber-500 flex items-center justify-center mx-auto shadow-lg">
+              <Database className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-stone-900">Configuracion de Granja</h1>
+            <div className="flex items-center justify-center gap-2 py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-stone-400" />
+              <p className="text-sm text-stone-500">Verificando sesion...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show auth required message if Supabase configured but not authenticated
+  if (supabaseConfigured && !isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-stone-50 to-amber-50/30 p-4">
+        <div className="w-full max-w-lg space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-amber-500 flex items-center justify-center mx-auto shadow-lg">
+              <Database className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-stone-900">Configuracion de Granja</h1>
+            <p className="text-sm text-stone-500">
+              Debes iniciar sesión para configurar tu granja.
+            </p>
+          </div>
+          <Alert className="border-amber-300 bg-amber-50">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-xs text-amber-800">
+              Se requiere autenticacion para usar el modo en la nube.
+            </AlertDescription>
+          </Alert>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-stone-50 to-amber-50/30 p-4">
       <div className="w-full max-w-lg space-y-6">
@@ -184,6 +245,26 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
             Conecta tu granja a Supabase para sincronizar datos en la nube.
           </p>
         </div>
+
+        {/* User info */}
+        {isAuthenticated && user && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <span className="text-sm font-bold text-amber-700">
+                    {user.email?.[0]?.toUpperCase() || 'U'}
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-stone-700">{user.email}</p>
+                  <p className="text-xs text-stone-500">Sesion activa</p>
+                </div>
+                <CheckCircle2 className="w-5 h-5 text-green-500" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Status */}
         <Card>
@@ -224,7 +305,7 @@ export default function FarmSetup({ onFarmConnected, onDismiss }: FarmSetupProps
           </Alert>
         )}
 
-        {supabaseConfigured && (
+        {supabaseConfigured && isAuthenticated && (
           <>
             {/* Mode toggle */}
             <div className="flex gap-2">

@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
+import { useAuth } from '@/hooks/use-auth'
 import { isSupabaseConfigured, getFarmId, setFarmId as storeFarmId } from '@/lib/supabase'
 import type { FarmConfig, BatchConfig, StructuralExpense, MonthlyRecord } from '@/lib/farm-data'
 import {

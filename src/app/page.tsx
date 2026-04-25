@@ -45,6 +45,13 @@ import {
   Plus, Trash2, Printer,
 } from 'lucide-react'
 import FarmSetup from '@/components/farm-setup'
+import { useAuth } from '@/hooks/use-auth'
+import { useRouter } from 'next/navigation'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { LogOut, User, Loader2 } from 'lucide-react'
 import { isSupabaseConfigured, getFarmId } from '@/lib/supabase'
 
 // ================================================================
@@ -491,17 +498,33 @@ function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord,
 // MAIN COMPONENT
 // ================================================================
 export default function Home() {
+  // ---- Auth ----
+  const router = useRouter()
+  const { user, loading: authLoading, isAuthenticated, signOut } = useAuth()
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOut()
+      localStorage.removeItem('granja-wd80-farm-id')
+      router.push('/auth/login')
+      router.refresh()
+    } catch (err) {
+      console.error('Sign out error:', err)
+    }
+  }, [signOut, router])
+
   // ---- Hydration guard ----
   const [mounted, setMounted] = useState(false)
   const [showFarmSetup, setShowFarmSetup] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
-  // ---- Farm setup check ----
+  // ---- Farm setup check (only show if authenticated and no farm) ----
   useEffect(() => {
-    if (mounted && isSupabaseConfigured() && !getFarmId()) {
+    if (mounted && isSupabaseConfigured() && isAuthenticated && !getFarmId()) {
       setShowFarmSetup(true)
     }
-  }, [mounted])
+  }, [mounted, isAuthenticated])
+
 
   const handleFarmConnected = useCallback(() => {
     setShowFarmSetup(false)
@@ -762,8 +785,21 @@ export default function Home() {
   // ================================================================
   // RENDER
   // ================================================================
-  if (!mounted) {
-    return <div className="min-h-screen flex flex-col bg-gradient-to-br from-stone-50 to-amber-50/30" />
+  // Show loading while checking auth
+  if (!mounted || authLoading) {
+    return <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-stone-50 to-amber-50/30">
+      <Loader2 className="w-8 h-8 animate-spin text-stone-400" />
+    </div>
+  }
+
+  // Redirect to login if Supabase configured but not authenticated
+  if (isSupabaseConfigured() && !isAuthenticated) {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/auth/login'
+    }
+    return <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-stone-50 to-amber-50/30">
+      <Loader2 className="w-8 h-8 animate-spin text-stone-400" />
+    </div>
   }
 
   // Show farm setup if Supabase is configured but no farm is connected
@@ -810,6 +846,27 @@ export default function Home() {
               >
                 <Settings className="w-4 h-4 text-stone-500" />
               </button>
+              {/* User menu */}
+              {isSupabaseConfigured() && isAuthenticated && user && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="w-8 h-8 rounded-full bg-amber-100 hover:bg-amber-200 flex items-center justify-center transition-colors text-amber-700 font-bold text-xs">
+                      {user.email?.[0]?.toUpperCase() || 'U'}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <div className="px-3 py-2 border-b">
+                      <p className="text-sm font-medium text-stone-900 truncate">{user.email}</p>
+                      <p className="text-xs text-stone-500">Sesion activa</p>
+                    </div>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSignOut} className="text-red-600 cursor-pointer">
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Cerrar sesion
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
         </div>

@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { verifyAuth } from '@/lib/auth-api'
 
 // GET /api/daily-entries - with filters
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
+
+  // Verify authentication
+  const { error: authError } = await verifyAuth(req)
+  if (authError) return authError
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
@@ -49,6 +54,10 @@ export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
+
+  // Verify authentication
+  const { error: authError } = await verifyAuth(req)
+  if (authError) return authError
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')

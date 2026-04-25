@@ -1,6 +1,6 @@
 -- ================================================================
 -- GRANJA NIDAL - Supabase Database Schema
--- Multi-tenant farm management
+-- Multi-tenant farm management with user authentication
 -- ================================================================
 
 -- farms table (multi-tenant, each farm has its own data)
@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS farms (
   name TEXT NOT NULL,
   slug TEXT UNIQUE NOT NULL,
   config JSONB NOT NULL DEFAULT '{}',
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -135,6 +136,7 @@ CREATE TABLE IF NOT EXISTS vaccinations (
 -- ================================================================
 -- INDEXES
 -- ================================================================
+CREATE INDEX IF NOT EXISTS idx_farms_user_id ON farms(user_id);
 CREATE INDEX IF NOT EXISTS idx_batches_farm_id ON batches(farm_id);
 CREATE INDEX IF NOT EXISTS idx_daily_entries_farm_id ON daily_entries(farm_id);
 CREATE INDEX IF NOT EXISTS idx_daily_entries_batch_id ON daily_entries(batch_id);
@@ -161,12 +163,64 @@ ALTER TABLE monthly_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feed_inventory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vaccinations ENABLE ROW LEVEL SECURITY;
 
--- For now, allow public read/write (will add auth later)
-CREATE POLICY "Public access" ON farms FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public access" ON batches FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public access" ON daily_entries FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public access" ON reminders FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public access" ON structural_expenses FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public access" ON monthly_records FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public access" ON feed_inventory FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public access" ON vaccinations FOR ALL USING (true) WITH CHECK (true);
+-- ================================================================
+-- Auth-based RLS policies
+-- ================================================================
+
+-- Farms: only the owner (user_id) can manage their farms
+CREATE POLICY "Users can manage their own farms" ON farms
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Allow inserting farms with user_id = auth.uid()
+CREATE POLICY "Users can insert their own farms" ON farms
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- All other tables: restrict via farm ownership
+CREATE POLICY "Farm owner access via farms" ON batches
+  FOR ALL USING (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Farm owner access via farms" ON daily_entries
+  FOR ALL USING (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Farm owner access via farms" ON reminders
+  FOR ALL USING (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Farm owner access via farms" ON structural_expenses
+  FOR ALL USING (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Farm owner access via farms" ON monthly_records
+  FOR ALL USING (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Farm owner access via farms" ON feed_inventory
+  FOR ALL USING (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Farm owner access via farms" ON vaccinations
+  FOR ALL USING (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  ) WITH CHECK (
+    farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid())
+  );

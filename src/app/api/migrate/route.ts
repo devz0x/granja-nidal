@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { verifyAuth } from '@/lib/auth-api'
 
 // POST /api/migrate - Migrate all localStorage data to Supabase
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
+
+  // Verify authentication
+  const { error: authError } = await verifyAuth(req)
+  if (authError) return authError
 
   const body = await req.json()
   const { farm_id, config, batches, daily_entries, reminders, structural_expenses, monthly_records, feed_inventory, vaccinations } = body

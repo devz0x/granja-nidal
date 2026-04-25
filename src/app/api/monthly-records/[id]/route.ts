@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { verifyAuth } from '@/lib/auth-api'
 
 // DELETE /api/monthly-records/[id]
 export async function DELETE(
@@ -9,6 +10,9 @@ export async function DELETE(
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
+
+  const { error: authError } = await verifyAuth(req)
+  if (authError) return authError
 
   const { id } = await params
 
