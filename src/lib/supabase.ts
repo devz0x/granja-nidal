@@ -3,25 +3,22 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-if (typeof window !== 'undefined' && (!supabaseUrl || !supabaseAnonKey)) {
-  // Only warn in browser
-  console.warn('Supabase credentials not configured. Using localStorage fallback.')
-}
+const _isConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith('http'))
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Only create the client if properly configured; otherwise use a no-op placeholder
+// that won't crash on import. The app checks isSupabaseConfigured() before any calls.
+export const supabase = _isConfigured
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : createClient('https://placeholder.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDc4NzE0MDF9.placeholder')
 
-export const isSupabaseConfigured = (): boolean => {
-  return !!(supabaseUrl && supabaseAnonKey)
-}
+export const isSupabaseConfigured = (): boolean => _isConfigured
 
 // Get the farm ID from env or localStorage
 export const getFarmId = (): string | null => {
-  // Check env first
   if (typeof window !== 'undefined') {
     const envFarmId = process.env.NEXT_PUBLIC_FARM_ID
     if (envFarmId) return envFarmId
-    
-    // Check localStorage
+
     const stored = localStorage.getItem('granja-wd80-farm-id')
     if (stored) return stored
   }
