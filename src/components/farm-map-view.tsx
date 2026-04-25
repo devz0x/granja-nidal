@@ -42,46 +42,40 @@ interface FarmMapViewProps {
 }
 
 // ================================================================
-// POKEMON PALETTE - flat colors, NO gradients
+// GTA-STYLE PALETTE
 // ================================================================
-const P = {
-  black:     '#111827',
-  outline:   '#1f2937',
-  dark:      '#374151',
-  mid:       '#6b7280',
-  light:     '#d1d5db',
-  white:     '#f3f4f6',
-  cream:     '#fef9c3',
-  sky1:      '#7dd3fc',
-  sky2:      '#bae6fd',
-  grass1:    '#4ade80',
-  grass2:    '#22c55e',
-  grass3:    '#16a34a',
-  grass4:    '#15803d',
-  dirt1:     '#d6d3d1',
-  dirt2:     '#a8a29e',
-  dirt3:     '#78716c',
-  wood1:     '#d97706',
-  wood2:     '#b45309',
-  wood3:     '#92400e',
-  wood4:     '#78350f',
-  wall1:     '#f5f5f4',
-  wall2:     '#e7e5e4',
-  wall3:     '#d6d3d1',
-  red1:      '#ef4444',
-  blue1:     '#3b82f6',
-  yellow1:   '#eab308',
-  yellow2:   '#facc15',
-  yellow3:   '#fde047',
-  pink1:     '#ec4899',
+const C = {
+  black:     '#111111',
+  outline:   '#222222',
+  asphalt:   '#4a4a4a',
+  road:      '#5c5c5c',
+  roadLine:  '#c8c832',
+  sidewalk:  '#8a8a7a',
+  grass1:    '#3d8b37',
+  grass2:    '#2d7a27',
+  grass3:    '#4d9b47',
+  dirt:      '#8b7355',
+  fence:     '#6b5b3a',
+  fencePost: '#5a4a2e',
+  wall:      '#c8b898',
+  wallShade: '#a89878',
+  door:      '#5a4a2e',
+  window:    '#68a8d8',
+  silo:      '#888888',
+  water:     '#5898c8',
+  tree1:     '#2a7a22',
+  tree2:     '#358a2d',
+  treeShade: '#1a5a12',
+  hedge:     '#3a8a32',
+  shadow:    'rgba(0,0,0,0.25)',
 }
 
-const PHASE_ROOF: Record<PhaseKey, { main: string; shade: string; light: string }> = {
-  pre_inicio:   { main: '#94a3b8', shade: '#64748b', light: '#cbd5e1' },
-  inicio:       { main: '#38bdf8', shade: '#0284c7', light: '#7dd3fc' },
-  crecimiento:  { main: '#2dd4bf', shade: '#0d9488', light: '#5eead4' },
-  pre_postura:  { main: '#fbbf24', shade: '#d97706', light: '#fde047' },
-  postura:      { main: '#4ade80', shade: '#16a34a', light: '#86efac' },
+const PHASE_FILL: Record<PhaseKey, { fill: string; roof: string; accent: string }> = {
+  pre_inicio:  { fill: '#a0a8b8', roof: '#8090a8', accent: '#6878a0' },
+  inicio:      { fill: '#80b8d8', roof: '#68a0c0', accent: '#5088b0' },
+  crecimiento: { fill: '#78c8b0', roof: '#60b098', accent: '#489880' },
+  pre_postura: { fill: '#d8b868', roof: '#c0a050', accent: '#a88838' },
+  postura:     { fill: '#68c878', roof: '#50b060', accent: '#389848' },
 }
 
 const PHASE_LABELS: Record<PhaseKey, string> = {
@@ -89,256 +83,380 @@ const PHASE_LABELS: Record<PhaseKey, string> = {
   pre_postura: 'Pre-Postura', postura: 'Postura',
 }
 
-const PHASE_ICONS: Record<PhaseKey, string> = {
-  pre_inicio: '\u{1F423}', inicio: '\u{1F425}', crecimiento: '\u{1F414}',
-  pre_postura: '\u{1F98B}', postura: '\u{1F95A}',
-}
-
 // ================================================================
 // HELPERS
 // ================================================================
 function fmtNum(v: number) { return new Intl.NumberFormat('es-DO').format(v) }
 function fmtRD(v: number) {
-  return new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v)
+  return new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP',
+    minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v)
 }
-
-// Shed positions in the map (percentage of map container)
-// 2x2 grid, centered, with generous spacing
-const SHED_POSITIONS = [
-  { left: 8,  top: 28 },   // top-left
-  { left: 54, top: 28 },   // top-right
-  { left: 8,  top: 60 },   // bottom-left
-  { left: 54, top: 60 },   // bottom-right
-]
 
 // ================================================================
 // MAIN COMPONENT
 // ================================================================
 export default function FarmMapView({ batches, config, calculations }: FarmMapViewProps) {
   const [hoveredShed, setHoveredShed] = useState<string | null>(null)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number; side: 'left' | 'right' }>({ x: 0, y: 0, side: 'right' })
   const [tick, setTick] = useState(0)
   const mapRef = useRef<HTMLDivElement>(null)
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number; align: 'left' | 'right' }>({ x: 0, y: 0, align: 'right' })
 
-  // Slow tick for subtle animations
   useEffect(() => {
-    const iv = setInterval(() => setTick(t => t + 1), 1500)
+    const iv = setInterval(() => setTick(t => t + 1), 2000)
     return () => clearInterval(iv)
   }, [])
 
-  // Per-shed data
+  // Compute shed data
   const shedData = useMemo(() =>
     batches.map((b, i) => {
       const d = calculations.batchDetails?.find(x => x.id === b.id)
-      const fp = config.feedPhases[b.phase]
       return {
         ...b, index: i,
         eggsPerDay: d?.eggsPerDay || 0,
         eggRevenue: d?.eggRevenue || 0,
         feedCost: d?.monthlyFeedCost || 0,
         netBalance: d?.netBalance || 0,
-        feedPhase: fp,
-        weeksLabel: fp?.weeks || '',
+        weeksLabel: config.feedPhases[b.phase]?.weeks || '',
         progress: Math.min(100, (b.cycleMonth / 20) * 100),
       }
     }), [batches, calculations, config])
 
-  const handleShedHover = useCallback((shedId: string, idx: number, e: React.MouseEvent) => {
-    setHoveredShed(shedId)
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const mapRect = mapRef.current?.getBoundingClientRect()
-    if (mapRect) {
-      const x = rect.left - mapRect.left + rect.width / 2
-      const y = rect.top - mapRect.top
-      // If shed is on right half, tooltip goes left; otherwise right
-      const align = x > mapRect.width / 2 ? 'right' : 'left'
-      setTooltipPos({ x: align === 'right' ? x - rect.width - 8 : x + rect.width + 8, y: Math.max(0, y - 20), align })
-    }
-  }, [])
+  // Dynamic grid: columns based on count, sheds shrink with more
+  const { cols, rows, shedW, shedH } = useMemo(() => {
+    const n = batches.length
+    let c: number, r: number
+    if (n <= 2) { c = 2; r = 1 }
+    else if (n <= 4) { c = 2; r = 2 }
+    else if (n <= 6) { c = 3; r = 2 }
+    else if (n <= 9) { c = 3; r = 3 }
+    else if (n <= 12) { c = 4; r = 3 }
+    else { c = 4; r = Math.ceil(n / 4) }
 
-  const handleShedLeave = useCallback(() => setHoveredShed(null), [])
+    // Available area: 65% width, 55% height of map
+    const areaW = 65
+    const areaH = 55
+    const gap = 4
+    const w = Math.min(28, (areaW - gap * (c + 1)) / c)
+    const h = Math.min(22, (areaH - gap * (r + 1)) / r)
+    return { cols: c, rows: r, shedW: w, shedH: h }
+  }, [batches.length])
+
+  // Shed positions in the grid (percentage-based)
+  const shedPositions = useMemo(() => {
+    const positions: { x: number; y: number }[] = []
+    const startX = (100 - (cols * shedW + (cols - 1) * 4)) / 2
+    const startY = 28 // below the entrance road
+    for (let i = 0; i < batches.length; i++) {
+      const c = i % cols
+      const r = Math.floor(i / cols)
+      positions.push({
+        x: startX + c * (shedW + 4),
+        y: startY + r * (shedH + 4),
+      })
+    }
+    return positions
+  }, [batches.length, cols, rows, shedW, shedH])
+
+  const handleHover = useCallback((shedId: string, e: React.MouseEvent) => {
+    setHoveredShed(shedId)
+    const el = e.currentTarget as HTMLElement
+    const map = mapRef.current
+    if (!map) return
+    const mr = map.getBoundingClientRect()
+    const er = el.getBoundingClientRect()
+    const cx = er.left - mr.left + er.width / 2
+    const cy = er.top - mr.top
+    setTooltipPos({
+      x: cx,
+      y: cy,
+      side: cx > mr.width / 2 ? 'left' : 'right',
+    })
+  }, [])
 
   const activeShed = shedData.find(s => s.id === hoveredShed)
 
   return (
     <div className="space-y-3">
-      {/* ========= POKEMON HUD BAR ========= */}
-      <div className="flex items-stretch border-[3px] border-gray-800 rounded-lg overflow-hidden bg-gray-900">
-        {/* Farm info - left */}
-        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border-r-[3px] border-gray-800">
-          <div className="w-7 h-7 bg-amber-200 border-2 border-gray-800 rounded flex items-center justify-center text-sm leading-none">
-            &#x1F3E0;
-          </div>
+      {/* ========= HUD BAR ========= */}
+      <div className="flex items-stretch border-[3px] border-gray-800 rounded-sm overflow-hidden bg-gray-900">
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 border-r-[3px] border-gray-600">
+          <span className="text-sm">&#x1F3E0;</span>
           <div>
-            <p className="text-[10px] font-bold text-gray-800 leading-none">GRANJA NIDAL</p>
-            <p className="text-[8px] text-gray-500 leading-tight">{fmtNum(calculations.totalHens)} aves | {batches.length} galpones</p>
+            <p className="text-[9px] font-bold text-gray-200 font-mono tracking-wider">GRANJA NIDAL</p>
+            <p className="text-[8px] text-gray-400 font-mono">{fmtNum(calculations.totalHens)} aves | {batches.length} lotes</p>
           </div>
         </div>
-
-        {/* Stats - center */}
-        <div className="flex-1 grid grid-cols-4 divide-x-[3px] divide-gray-800">
-          <StatBlock label="INGRESO" value={fmtRD(calculations.totalRevenue)} icon="$" bg="bg-green-50" color="text-green-700" />
-          <StatBlock label="HUEVOS" value={`${fmtNum(calculations.totalEggs)}/m`} icon="O" bg="bg-orange-50" color="text-orange-700" />
-          <StatBlock label="NETO" value={fmtRD(calculations.netProfit || 0)} icon="N" bg={calculations.netProfit >= 0 ? 'bg-emerald-50' : 'bg-red-50'} color={calculations.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'} />
-          <StatBlock label="MARGEN" value={`${(calculations.profitMargin || 0).toFixed(1)}%`} icon="M" bg="bg-blue-50" color="text-blue-700" />
+        <div className="flex-1 grid grid-cols-4 divide-x-[2px] divide-gray-600">
+          <HudStat label="INGRESO" value={fmtRD(calculations.totalRevenue)} c="text-green-400" />
+          <HudStat label="HUEVOS" value={`${fmtNum(calculations.totalEggs)}/m`} c="text-yellow-400" />
+          <HudStat label="NETO" value={fmtRD(calculations.netProfit || 0)} c={calculations.netProfit >= 0 ? 'text-green-400' : 'text-red-400'} />
+          <HudStat label="MARGEN" value={`${(calculations.profitMargin || 0).toFixed(1)}%`} c="text-cyan-400" />
         </div>
-
-        {/* Laying counter + clock - right */}
-        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border-l-[3px] border-gray-800">
-          <div className="text-center">
-            <p className="text-[8px] font-bold text-gray-500 leading-none">POSTURA</p>
-            <p className="text-sm font-bold text-gray-800 leading-none">{calculations.layingBatches}<span className="text-[9px] text-gray-400">/{batches.length}</span></p>
-          </div>
-          <div className="w-8 h-8 rounded-full border-[3px] border-gray-800 bg-yellow-200 flex items-center justify-center relative overflow-hidden">
-            <div className="absolute inset-[2px] rounded-full border border-gray-400" />
-            <div className="w-[2px] h-2.5 bg-gray-800 rounded-b origin-bottom" style={{ transform: `rotate(${tick * 15}deg)` }} />
-            <div className="absolute w-[1.5px] h-2 bg-gray-600 rounded-b origin-bottom" style={{ transform: `rotate(${tick * 1.25}deg)` }} />
-          </div>
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 border-l-[3px] border-gray-600">
+          <span className="text-[8px] font-bold text-gray-300 font-mono">POSTURA</span>
+          <span className="text-sm font-bold text-yellow-400 font-mono">{calculations.layingBatches}<span className="text-gray-500 text-[10px]">/{batches.length}</span></span>
         </div>
       </div>
 
-      {/* ========= MAP CONTAINER ========= */}
+      {/* ========= TOP-DOWN MAP ========= */}
       <div
         ref={mapRef}
-        className="relative w-full border-[3px] border-gray-800 rounded-lg overflow-hidden select-none"
+        className="relative w-full border-[3px] border-gray-800 rounded-sm overflow-hidden select-none"
         style={{ aspectRatio: '16 / 9' }}
       >
-        {/* --- BACKGROUND LAYERS (non-interactive) --- */}
-        <MapBackground />
+        {/* Base grass */}
+        <div className="absolute inset-0" style={{ background: C.grass1 }} />
 
-        {/* --- TREES (background layer) --- */}
-        <PokeTree x="1%" y="22%" />
-        <PokeTree x="4.5%" y="18%" />
-        <PokeTree x="90%" y="20%" />
-        <PokeTree x="94%" y="24%" />
-        <PokeTree x="49%" y="17%" />
+        {/* Grass texture - subtle variation patches */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 160 90" preserveAspectRatio="none">
+          {[
+            [10,15,25,12], [45,8,30,15], [80,12,20,10], [120,18,18,8],
+            [5,50,22,14], [55,55,28,12], [95,48,24,18], [130,52,20,14],
+            [15,75,30,10], [70,78,25,8], [115,74,20,12],
+          ].map(([x,y,w,h], i) => (
+            <rect key={i} x={x} y={y} width={w} height={h} fill={i % 2 === 0 ? C.grass2 : C.grass3} opacity="0.6" rx="1" />
+          ))}
+        </svg>
 
-        {/* --- FENCE PERIMETER --- */}
-        <FenceTop />
-        <FenceBottom />
-        <FenceLeft />
-        <FenceRight />
+        {/* === PERIMETER FENCE (top-down: line with posts) === */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-[2]" viewBox="0 0 160 90" preserveAspectRatio="none">
+          {/* Fence outline */}
+          <rect x="3" y="3" width="154" height="84" fill="none" stroke={C.fence} strokeWidth="1.2" rx="1" />
+          <rect x="4" y="4" width="152" height="82" fill="none" stroke={C.fencePost} strokeWidth="0.4" strokeDasharray="0.8 1.5" />
+          {/* Fence posts at corners and intervals */}
+          {[{x:3,y:3},{x:157,y:3},{x:3,y:87},{x:157,y:87},
+            {x:40,y:3},{x:80,y:3},{x:120,y:3},
+            {x:3,y:30},{x:3,y:58},{x:157,y:30},{x:157,y:58},
+            {x:40,y:87},{x:80,y:87},{x:120,y:87},
+          ].map((p,i) => (
+            <rect key={i} x={p.x - 1} y={p.y - 1} width="2.5" height="2.5" fill={C.fencePost} rx="0.3" />
+          ))}
+        </svg>
 
-        {/* --- GATE --- */}
-        <div className="absolute" style={{ left: '46.5%', top: '89%', width: '7%', height: '10%' }}>
-          <svg viewBox="0 0 80 32" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
-            <rect x="0" y="0" width="36" height="32" fill={P.wood2} stroke={P.black} strokeWidth="2" />
-            <rect x="44" y="0" width="36" height="32" fill={P.wood2} stroke={P.black} strokeWidth="2" />
-            <rect x="4" y="4" width="28" height="24" fill={P.wood1} />
-            <rect x="48" y="4" width="28" height="24" fill={P.wood1} />
-            {/* Hinges */}
-            <rect x="34" y="8" width="6" height="4" fill={P.wood4} />
-            <rect x="40" y="8" width="6" height="4" fill={P.wood4} />
+        {/* === MAIN ROAD (horizontal at bottom of farm) === */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-[1]" viewBox="0 0 160 90" preserveAspectRatio="none">
+          {/* Road */}
+          <rect x="4" y="22" width="152" height="5" fill={C.asphalt} rx="0.5" />
+          {/* Road edges */}
+          <line x1="4" y1="22" x2="156" y2="22" stroke={C.sidewalk} strokeWidth="0.6" />
+          <line x1="4" y1="27" x2="156" y2="27" stroke={C.sidewalk} strokeWidth="0.6" />
+          {/* Center dashes */}
+          {[8, 22, 36, 50, 64, 78, 92, 106, 120, 134, 148].map(x => (
+            <rect key={x} x={x} y="24" width="4" height="1" fill={C.roadLine} rx="0.3" />
+          ))}
+
+          {/* Vertical paths from road to each shed row */}
+          {shedPositions.length > 0 && (() => {
+            const uniqueRows = [...new Set(shedPositions.map((_, i) => Math.floor(i / cols)))]
+            return uniqueRows.map(r => {
+              const firstInRow = shedPositions[r * cols]
+              const midX = firstInRow ? firstInRow.x + shedW / 2 : 50
+              return (
+                <g key={r}>
+                  <rect x={midX - 1.5} y="27" width="3" height={firstInRow ? firstInRow.y - 27 - 1 : 5}
+                    fill={C.asphalt} />
+                  <rect x={midX - 1.2} y="27" width="2.4" height={firstInRow ? firstInRow.y - 27 - 1 : 5}
+                    fill={C.road} opacity="0.5" />
+                </g>
+              )
+            })
+          })()}
+        </svg>
+
+        {/* === ENTRANCE GATE (bottom center) === */}
+        <div className="absolute z-[3]" style={{ left: '46%', bottom: '2%', width: '8%', height: '5%' }}>
+          <svg viewBox="0 0 40 16" width="100%" height="100%">
+            <rect x="0" y="0" width="18" height="16" fill={C.fence} stroke={C.black} strokeWidth="1" />
+            <rect x="2" y="2" width="14" height="12" fill={C.fencePost} />
+            <rect x="22" y="0" width="18" height="16" fill={C.fence} stroke={C.black} strokeWidth="1" />
+            <rect x="24" y="2" width="14" height="12" fill={C.fencePost} />
+            {/* Open gate indicator */}
+            <rect x="18" y="4" width="4" height="8" fill={C.grass1} />
           </svg>
         </div>
 
-        {/* --- PATH from gate up --- */}
-        <div className="absolute" style={{ left: '47%', top: '52%', width: '6%', height: '38%' }}>
-          <svg viewBox="0 0 40 120" width="100%" height="100%">
-            <rect x="0" y="0" width="40" height="120" fill={P.dirt1} stroke={P.dirt3} strokeWidth="1" />
-            <rect x="4" y="0" width="32" height="120" fill={P.dirt2} />
-            {[0, 20, 40, 60, 80, 100].map(y => (
-              <rect key={y} x="12" y={y} width="6" height="4" fill={P.dirt3} rx="1" />
-            ))}
+        {/* === SILO (top-left, top-down = circle) === */}
+        <div className="absolute z-[3]" style={{ left: '6%', top: '6%', width: '6%', aspectRatio: '1' }}>
+          <svg viewBox="0 0 40 40" width="100%" height="100%">
+            <circle cx="20" cy="20" r="18" fill={C.silo} stroke={C.black} strokeWidth="2" />
+            <circle cx="20" cy="20" r="14" fill="#999" />
+            <circle cx="16" cy="16" r="8" fill="#aaa" opacity="0.6" />
+            <circle cx="20" cy="20" r="10" fill="#c8b832" opacity="0.4" />
+            <circle cx="20" cy="20" r="3" fill={C.black} opacity="0.3" />
           </svg>
+          <p className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[6px] font-bold text-white/80 font-mono whitespace-nowrap"
+            style={{ textShadow: '1px 1px 1px black' }}>SILO</p>
         </div>
 
-        {/* --- SILO (left) --- */}
-        <div className="absolute" style={{ left: '2%', top: '34%', width: '5%', height: '16%' }}>
-          <svg viewBox="0 0 36 52" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
-            <rect x="6" y="6" width="24" height="40" fill={P.wall1} stroke={P.black} strokeWidth="2" />
-            <rect x="8" y="8" width="8" height="36" fill={P.light} />
-            <rect x="6" y="0" width="24" height="10" fill="#9ca3af" stroke={P.black} strokeWidth="2" />
-            <rect x="10" y="-4" width="16" height="8" fill="#6b7280" stroke={P.black} strokeWidth="2" />
-            <rect x="4" y="42" width="28" height="10" fill={P.dark} stroke={P.black} strokeWidth="2" />
-            <rect x="12" y="30" width="12" height="18" fill={P.mid} />
-            <rect x="14" y="30" width="2" height="18" fill={P.dark} />
-            <rect x="12" y="14" width="12" height="14" fill={P.yellow2} opacity="0.6" />
+        {/* === WATER TANK (top-right, top-down = circle) === */}
+        <div className="absolute z-[3]" style={{ left: '88%', top: '6%', width: '5%', aspectRatio: '1' }}>
+          <svg viewBox="0 0 40 40" width="100%" height="100%">
+            <circle cx="20" cy="20" r="18" fill={C.water} stroke={C.black} strokeWidth="2" />
+            <circle cx="20" cy="20" r="13" fill="#6898c8" />
+            <ellipse cx="16" cy="16" rx="5" ry="3" fill="#88b8e8" opacity="0.6" />
+            <circle cx="20" cy="20" r="2" fill={C.black} opacity="0.2" />
           </svg>
+          <p className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[6px] font-bold text-white/80 font-mono whitespace-nowrap"
+            style={{ textShadow: '1px 1px 1px black' }}>AGUA</p>
         </div>
 
-        {/* --- WATER TANK (right) --- */}
-        <div className="absolute" style={{ left: '93%', top: '36%', width: '4%', height: '13%' }}>
-          <svg viewBox="0 0 28 36" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
-            <rect x="2" y="4" width="24" height="24" fill="#93c5fd" stroke={P.black} strokeWidth="2" />
-            <rect x="4" y="6" width="8" height="20" fill="#bfdbfe" />
-            <rect x="0" y="0" width="28" height="8" fill={P.mid} stroke={P.black} strokeWidth="2" />
-            <rect x="4" y="28" width="4" height="8" fill={P.dark} />
-            <rect x="20" y="28" width="4" height="8" fill={P.dark} />
-            <rect x="6" y="10" width="2" height="6" fill="#dbeafe" />
-          </svg>
-        </div>
+        {/* === TOP-DOWN TREES (circles with shadow) === */}
+        {[
+          { x: '14%', y: '8%' }, { x: '18%', y: '13%' },
+          { x: '82%', y: '9%' }, { x: '78%', y: '14%' },
+          { x: '38%', y: '10%' },
+          { x: '6%', y: '55%' }, { x: '90%', y: '60%' },
+          { x: '4%', y: '80%' }, { x: '92%', y: '82%' },
+          { x: '10%', y: '92%' }, { x: '84%', y: '94%' },
+        ].map((pos, i) => (
+          <TopDownTree key={i} x={pos.x} y={pos.y} variant={i % 3} />
+        ))}
 
-        {/* --- SHEDS (interactive) --- */}
+        {/* === HEDGES (top-down green rectangles) === */}
+        {[
+          { x: '20%', y: '7%', w: '10%', h: '2%' },
+          { x: '65%', y: '8%', w: '12%', h: '2%' },
+          { x: '30%', y: '93%', w: '14%', h: '2%' },
+          { x: '55%', y: '92%', w: '16%', h: '2%' },
+        ].map((h, i) => (
+          <div key={i} className="absolute z-[3] rounded-sm" style={{
+            left: h.x, top: h.y, width: h.w, height: h.h,
+            background: C.hedge, border: `1.5px solid ${C.treeShade}`,
+          }} />
+        ))}
+
+        {/* === SHEDS (top-down rectangles, interactive) === */}
         {shedData.map((shed, i) => {
-          const pos = SHED_POSITIONS[i] || SHED_POSITIONS[0]
+          const pos = shedPositions[i]
+          if (!pos) return null
           const isHov = hoveredShed === shed.id
+          const phase = PHASE_FILL[shed.phase]
+
           return (
             <div
               key={shed.id}
-              className="absolute z-10"
-              style={{ left: `${pos.left}%`, top: `${pos.top}%`, width: '38%', height: '26%' }}
-              onMouseEnter={(e) => handleShedHover(shed.id, i, e)}
-              onMouseLeave={handleShedLeave}
+              className="absolute z-10 cursor-default"
+              style={{
+                left: `${pos.x}%`,
+                top: `${pos.y}%`,
+                width: `${shedW}%`,
+                height: `${shedH}%`,
+              }}
+              onMouseEnter={(e) => handleHover(shed.id, e)}
+              onMouseLeave={() => setHoveredShed(null)}
             >
-              {/* Shed shadow */}
-              <div className="absolute bottom-0 left-[8%] right-[8%] h-[6%] bg-black/15 rounded-full" />
-              {/* Shed building */}
-              <div className="relative w-full h-full">
-                <ShedBuilding phase={shed.phase} isHovered={isHov} name={shed.name} />
+              {/* Shadow */}
+              <div className="absolute inset-0 translate-x-[3px] translate-y-[3px] rounded-sm"
+                style={{ backgroundColor: C.shadow }} />
+
+              {/* Shed body */}
+              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100"
+                preserveAspectRatio="none" style={{ imageRendering: 'auto' }}>
+                {/* Outer wall */}
+                <rect x="2" y="2" width="96" height="96" fill={phase.fill}
+                  stroke={C.black} strokeWidth="3" rx="1" />
+                {/* Wall inner detail */}
+                <rect x="6" y="6" width="88" height="88" fill={phase.roof}
+                  stroke={C.outline} strokeWidth="1" rx="0.5" />
+                {/* Wall highlight */}
+                <rect x="6" y="6" width="88" height="20" fill="white" opacity="0.12" rx="0.5" />
+
+                {/* Inner floor pattern */}
+                {[20, 40, 60, 80].map(y => (
+                  <line key={y} x1="6" y1={y} x2="94" y2={y} stroke={C.outline} strokeWidth="0.3" opacity="0.3" />
+                ))}
+                {[25, 50, 75].map(x => (
+                  <line key={x} x1={x} y1="6" x2={x} y2="94" stroke={C.outline} strokeWidth="0.3" opacity="0.3" />
+                ))}
+
+                {/* Door (bottom center) */}
+                <rect x="38" y="78" width="24" height="20" fill={C.door} stroke={C.black} strokeWidth="1.5" rx="0.5" />
+                <rect x="40" y="80" width="20" height="16" fill="#7a6a4e" />
+                <circle cx="56" cy="88" r="2" fill={C.roadLine} stroke={C.black} strokeWidth="0.5" />
+
+                {/* Feed troughs (left and right sides) */}
+                <rect x="10" y="30" width="12" height="40" fill={C.dirt} stroke={C.outline} strokeWidth="0.8" rx="0.5" />
+                <rect x="78" y="30" width="12" height="40" fill={C.dirt} stroke={C.outline} strokeWidth="0.8" rx="0.5" />
+                {/* Feed in troughs */}
+                <rect x="12" y="32" width="8" height="36" fill="#c8a832" opacity="0.5" rx="0.5" />
+                <rect x="80" y="32" width="8" height="36" fill="#c8a832" opacity="0.5" rx="0.5" />
+
+                {/* Water line (top) */}
+                <rect x="26" y="10" width="48" height="6" fill={C.water} stroke={C.outline} strokeWidth="0.5" rx="0.5" />
+
+                {/* Hover glow */}
+                {isHov && (
+                  <rect x="0" y="0" width="100" height="100" fill="white" opacity="0.15" rx="2"
+                    stroke="white" strokeWidth="2" strokeOpacity="0.5" />
+                )}
+              </svg>
+
+              {/* Shed name (above) */}
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap z-20"
+                style={{ textShadow: '1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black' }}>
+                <p className={`text-[8px] font-bold font-mono ${isHov ? 'text-white' : 'text-white/80'}`}>
+                  {shed.name}
+                </p>
               </div>
+
+              {/* Phase dot (bottom-right) */}
+              <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border border-black/50 z-20"
+                style={{ backgroundColor: phase.accent }}
+              />
             </div>
           )
         })}
 
-        {/* --- WALKING CHICKENS --- */}
-        <WalkingChicken left="15%" top="88%" delay={0} tick={tick} />
-        <WalkingChicken left="72%" top="87%" delay={2} tick={tick} />
+        {/* === WALKING CHICKENS (top-down = small dots) === */}
+        <TopDownChicken x="12%" y="88%" delay={0} tick={tick} />
+        <TopDownChicken x="75%" y="86%" delay={3} tick={tick} />
+        <TopDownChicken x="48%" y="18%" delay={1} tick={tick} />
 
-        {/* --- HOVER TOOLTIP (Pokemon dialog box) --- */}
-        {activeShed && (
-          <div
-            className="absolute z-50 pointer-events-none"
-            style={{
-              left: `${tooltipPos.x}px`,
-              top: `${tooltipPos.y}px`,
-              transform: tooltipPos.align === 'right' ? 'translateX(-100%)' : 'translateX(0)',
-              maxWidth: '220px',
-              width: '220px',
-            }}
-          >
-            <PokeTooltip shed={activeShed} align={tooltipPos.align} />
-          </div>
-        )}
-
-        {/* --- FARM SIGN --- */}
-        <div className="absolute z-20" style={{ left: '38%', top: '2.5%', width: '24%', height: '8%' }}>
-          <svg viewBox="0 0 160 36" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
-            <rect x="68" y="10" width="8" height="26" fill={P.wood3} stroke={P.black} strokeWidth="2" />
-            <rect x="84" y="10" width="8" height="26" fill={P.wood3} stroke={P.black} strokeWidth="2" />
-            <rect x="0" y="0" width="160" height="16" fill={P.wood3} stroke={P.black} strokeWidth="2" />
-            <rect x="4" y="2" width="152" height="12" fill={P.cream} />
-            <text x="80" y="12" textAnchor="middle" fontSize="9" fill={P.black} fontFamily="monospace" fontWeight="bold">
-              GRANJA NIDAL
-            </text>
+        {/* === FARM SIGN (top-down = rectangle on road) === */}
+        <div className="absolute z-[4]" style={{ left: '43%', top: '19.5%', width: '14%', height: '4%' }}>
+          <svg viewBox="0 0 100 30" width="100%" height="100%">
+            <rect x="0" y="0" width="100" height="30" fill="#c8a848" stroke={C.black} strokeWidth="2" rx="1" />
+            <rect x="3" y="3" width="94" height="24" fill="#e8d878" rx="0.5" />
+            <text x="50" y="19" textAnchor="middle" fontSize="10" fill={C.black}
+              fontFamily="monospace" fontWeight="bold">GRANJA NIDAL</text>
           </svg>
         </div>
 
-        {/* --- SCANLINES (very subtle retro overlay) --- */}
-        <div
-          className="absolute inset-0 pointer-events-none z-30 opacity-[0.025]"
-          style={{
-            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.5) 3px, rgba(0,0,0,0.5) 4px)',
-          }}
-        />
+        {/* === MINIMAP COMPASS === */}
+        <div className="absolute z-20 bottom-2 right-2 w-8 h-8 bg-black/40 border border-white/20 rounded-full flex items-center justify-center">
+          <svg viewBox="0 0 24 24" width="24" height="24">
+            <polygon points="12,2 15,10 12,8 9,10" fill="#ef4444" stroke="white" strokeWidth="0.5" />
+            <polygon points="12,22 9,14 12,16 15,14" fill="white" stroke="#999" strokeWidth="0.5" />
+            <text x="12" y="1" textAnchor="middle" fontSize="4" fill="white" fontWeight="bold">N</text>
+          </svg>
+        </div>
+
+        {/* === HOVER TOOLTIP === */}
+        {activeShed && tooltipPos && (
+          <div
+            className="absolute z-50 pointer-events-none"
+            style={{
+              left: tooltipPos.side === 'right'
+                ? `${tooltipPos.x + 2}%`
+                : `${tooltipPos.x - 2}%`,
+              top: `${tooltipPos.y}%`,
+              transform: tooltipPos.side === 'left' ? 'translateX(-100%)' : 'translateX(0)',
+              width: '200px',
+              maxWidth: '200px',
+            }}
+          >
+            <GtaTooltip shed={activeShed} />
+          </div>
+        )}
       </div>
 
       {/* ========= LEGEND ========= */}
-      <div className="flex items-stretch border-[3px] border-gray-800 rounded-lg overflow-hidden divide-x-[3px] divide-gray-800">
+      <div className="flex items-stretch border-[3px] border-gray-800 rounded-sm overflow-hidden divide-x-[2px] divide-gray-600 bg-gray-800">
         {(Object.keys(PHASE_LABELS) as PhaseKey[]).map(phase => (
-          <div key={phase} className="flex-1 flex items-center gap-1.5 px-2 py-1.5 bg-gray-50">
-            <div className="w-3 h-3 border-2 border-gray-800 rounded-sm" style={{ backgroundColor: PHASE_ROOF[phase].main }} />
-            <span className="text-[9px] font-bold text-gray-700">{PHASE_LABELS[phase]}</span>
+          <div key={phase} className="flex-1 flex items-center gap-1.5 px-2 py-1.5">
+            <div className="w-3.5 h-2.5 rounded-sm border border-gray-600"
+              style={{ backgroundColor: PHASE_FILL[phase].fill }} />
+            <span className="text-[8px] font-bold text-gray-300 font-mono">{PHASE_LABELS[phase]}</span>
           </div>
         ))}
       </div>
@@ -347,319 +465,140 @@ export default function FarmMapView({ batches, config, calculations }: FarmMapVi
 }
 
 // ================================================================
-// MAP BACKGROUND
+// TOP-DOWN TREE
 // ================================================================
-function MapBackground() {
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    const iv = setInterval(() => setTick(t => t + 1), 200)
-    return () => clearInterval(iv)
-  }, [])
+function TopDownTree({ x, y, variant }: { x: string; y: string; variant: number }) {
+  const colors = [
+    { main: C.tree1, shade: C.treeShade, light: C.tree2 },
+    { main: C.tree2, shade: C.tree1, light: '#4aaa42' },
+    { main: '#2a8a22', shade: '#1a6a12', light: '#3aba32' },
+  ]
+  const c = colors[variant]
 
   return (
-    <div className="absolute inset-0">
-      {/* Sky */}
-      <div className="absolute inset-0" style={{ height: '30%', background: 'linear-gradient(180deg, #7dd3fc 0%, #bae6fd 100%)' }} />
-      {/* Grass */}
-      <div className="absolute" style={{ top: '28%', bottom: 0, left: 0, right: 0, background: 'linear-gradient(180deg, #4ade80 0%, #22c55e 30%, #16a34a 70%, #15803d 100%)' }} />
-      {/* Transition stripe (trees/bushes line) */}
-      <div className="absolute" style={{ top: '26%', left: 0, right: 0, height: '5%', background: '#388838' }} />
-
-      {/* Sun */}
-      <svg className="absolute" style={{ top: '3%', right: '6%', width: '40px', height: '40px' }} viewBox="0 0 40 40">
-        <circle cx="20" cy="20" r="10" fill="#fbbf24" stroke={P.black} strokeWidth="2" />
-        <circle cx="18" cy="18" r="3" fill="#fde047" />
-        {Array.from({ length: 8 }, (_, i) => (
-          <line key={i} x1="20" y1="4" x2="20" y2="8" stroke={P.black} strokeWidth="2"
-            transform={`rotate(${i * 45 + tick * 3}, 20, 20)`} />
-        ))}
+    <div className="absolute z-[3] pointer-events-none" style={{ left: x, top: y, width: '3.5%', aspectRatio: '1' }}>
+      <svg viewBox="0 0 30 30" width="100%" height="100%">
+        {/* Shadow */}
+        <ellipse cx="16" cy="16" rx="12" ry="12" fill={C.shadow} />
+        {/* Canopy */}
+        <circle cx="14" cy="14" r="11" fill={c.main} stroke={C.treeShade} strokeWidth="1.5" />
+        <circle cx="10" cy="10" r="6" fill={c.light} opacity="0.5" />
+        <circle cx="14" cy="14" r="4" fill={c.shade} opacity="0.3" />
       </svg>
-
-      {/* Clouds */}
-      {[{ delay: 0, top: '4%' }, { delay: 300, top: '9%' }, { delay: 600, top: '15%' }].map((c, i) => (
-        <svg key={i} className="absolute pointer-events-none opacity-80"
-          style={{ top: c.top, left: `${((tick * 0.4 + c.delay) % 110) - 10}%`, width: '56px', height: '22px' }}
-          viewBox="0 0 56 22">
-          <ellipse cx="28" cy="14" rx="28" ry="8" fill="white" stroke={P.black} strokeWidth="1.5" />
-          <ellipse cx="20" cy="8" rx="14" ry="8" fill="white" stroke={P.black} strokeWidth="1.5" />
-          <ellipse cx="34" cy="10" rx="10" ry="6" fill="white" />
-          <ellipse cx="18" cy="6" rx="6" ry="4" fill="#f0f9ff" />
-        </svg>
-      ))}
     </div>
   )
 }
 
 // ================================================================
-// POKEMON-STYLE TREE
+// TOP-DOWN CHICKEN (small moving dot)
 // ================================================================
-function PokeTree({ x, y }: { x: string; y: string }) {
+function TopDownChicken({ x, y, delay, tick }: { x: string; y: string; delay: number; tick: number }) {
+  const angle = (tick * 0.8 + delay * 90) % 360
+  const dx = Math.cos(angle * Math.PI / 180) * 0.3
+  const dy = Math.sin(angle * Math.PI / 180) * 0.2
+
   return (
-    <svg className="absolute pointer-events-none" style={{ left: x, top: y, width: '32px', height: '40px', imageRendering: 'pixelated' }}
-      viewBox="0 0 32 40">
-      {/* Trunk */}
-      <rect x="13" y="26" width="6" height="14" fill={P.wood2} stroke={P.black} strokeWidth="1.5" />
-      {/* Canopy - round bushy shape */}
-      <circle cx="16" cy="16" r="12" fill="#16a34a" stroke={P.black} strokeWidth="2" />
-      <circle cx="10" cy="12" r="7" fill="#22c55e" />
-      <circle cx="22" cy="14" r="6" fill="#15803d" />
-      <circle cx="14" cy="8" r="5" fill="#4ade80" />
-      {/* Highlight */}
-      <circle cx="11" cy="9" r="3" fill="#86efac" opacity="0.7" />
-    </svg>
+    <div className="absolute z-[6] pointer-events-none"
+      style={{ left: x, top: y, width: '1.2%', aspectRatio: '1' }}>
+      <svg viewBox="0 0 12 12" width="100%" height="100%"
+        style={{ transform: `translate(${dx}%, ${dy}%)` }}>
+        {/* Body */}
+        <ellipse cx="6" cy="6" rx="4" ry="3.5" fill="#e8c820" stroke={C.black} strokeWidth="1" />
+        {/* Head */}
+        <circle cx="6" cy="3" r="2.5" fill="#e8c820" stroke={C.black} strokeWidth="0.8" />
+        {/* Comb */}
+        <ellipse cx="6" cy="1" rx="1.5" ry="0.8" fill="#d03030" stroke={C.black} strokeWidth="0.5" />
+      </svg>
+    </div>
   )
 }
 
 // ================================================================
-// FENCE SEGMENTS
+// GTA-STYLE TOOLTIP (clean, dark)
 // ================================================================
-function FenceTop() {
-  return (
-    <svg className="absolute pointer-events-none z-[5]" style={{ left: '7%', top: '24%', width: '86%', height: '14px' }}
-      viewBox="0 0 860 14" preserveAspectRatio="none">
-      <rect x="0" y="4" width="860" height="2" fill={P.wood2} stroke={P.black} strokeWidth="1" />
-      <rect x="0" y="10" width="860" height="2" fill={P.wood2} stroke={P.black} strokeWidth="1" />
-      {Array.from({ length: 36 }, (_, i) => (
-        <rect key={i} x={i * 24} y="0" width="4" height="14" fill={P.wood1} stroke={P.black} strokeWidth="1" />
-      ))}
-    </svg>
-  )
-}
-
-function FenceBottom() {
-  return (
-    <svg className="absolute pointer-events-none z-[5]" style={{ left: '7%', top: '89%', width: '40%', height: '14px' }}
-      viewBox="0 0 400 14" preserveAspectRatio="none">
-      <rect x="0" y="4" width="400" height="2" fill={P.wood2} stroke={P.black} strokeWidth="1" />
-      <rect x="0" y="10" width="400" height="2" fill={P.wood2} stroke={P.black} strokeWidth="1" />
-      {Array.from({ length: 17 }, (_, i) => (
-        <rect key={i} x={i * 24} y="0" width="4" height="14" fill={P.wood1} stroke={P.black} strokeWidth="1" />
-      ))}
-    </svg>
-  )
-}
-
-function FenceLeft() {
-  return (
-    <svg className="absolute pointer-events-none z-[5]" style={{ left: '7%', top: '24%', width: '14px', height: '66%' }}
-      viewBox="0 0 14 660" preserveAspectRatio="none">
-      <rect x="4" y="0" width="2" height="660" fill={P.wood2} stroke={P.black} strokeWidth="1" />
-      <rect x="10" y="0" width="2" height="660" fill={P.wood2} stroke={P.black} strokeWidth="1" />
-      {Array.from({ length: 28 }, (_, i) => (
-        <rect key={i} x="0" y={i * 24} width="14" height="4" fill={P.wood1} stroke={P.black} strokeWidth="1" />
-      ))}
-    </svg>
-  )
-}
-
-function FenceRight() {
-  return (
-    <svg className="absolute pointer-events-none z-[5]" style={{ left: '92.5%', top: '24%', width: '14px', height: '66%' }}
-      viewBox="0 0 14 660" preserveAspectRatio="none">
-      <rect x="4" y="0" width="2" height="660" fill={P.wood2} stroke={P.black} strokeWidth="1" />
-      <rect x="10" y="0" width="2" height="660" fill={P.wood2} stroke={P.black} strokeWidth="1" />
-      {Array.from({ length: 28 }, (_, i) => (
-        <rect key={i} x="0" y={i * 24} width="14" height="4" fill={P.wood1} stroke={P.black} strokeWidth="1" />
-      ))}
-    </svg>
-  )
-}
-
-// ================================================================
-// SHED BUILDING (just the sprite - no data)
-// ================================================================
-function ShedBuilding({ phase, isHovered, name }: { phase: PhaseKey; isHovered: boolean; name: string }) {
-  const roof = PHASE_ROOF[phase]
-  const icon = PHASE_ICONS[phase]
-  return (
-    <svg viewBox="0 0 180 100" width="100%" height="100%" style={{ imageRendering: 'pixelated' }}>
-      {/* Ground shadow */}
-      <ellipse cx="90" cy="96" rx="75" ry="4" fill="rgba(0,0,0,0.12)" />
-
-      {/* Wall body */}
-      <rect x="20" y="40" width="140" height="52" fill={P.wall2} stroke={P.black} strokeWidth="2.5" />
-      {/* Wall detail lines */}
-      <rect x="22" y="42" width="136" height="48" fill="none" />
-      <line x1="20" y1="60" x2="160" y2="60" stroke={P.wall3} strokeWidth="1" />
-      <line x1="60" y1="40" x2="60" y2="92" stroke={P.wall3} strokeWidth="0.8" />
-      <line x1="120" y1="40" x2="120" y2="92" stroke={P.wall3} strokeWidth="0.8" />
-      {/* Wall highlight */}
-      <rect x="22" y="42" width="136" height="6" fill={P.wall1} opacity="0.5" />
-
-      {/* Door */}
-      <rect x="70" y="60" width="24" height="32" fill={P.wood3} stroke={P.black} strokeWidth="2" />
-      <rect x="72" y="62" width="20" height="28" fill={P.wood2} />
-      <rect x="74" y="64" width="2" height="24" fill={P.wood1} />
-      <circle cx="88" cy="76" r="2" fill={P.yellow2} stroke={P.black} strokeWidth="1" />
-
-      {/* Windows */}
-      <rect x="30" y="48" width="20" height="16" fill="#bae6fd" stroke={P.black} strokeWidth="2" />
-      <line x1="40" y1="48" x2="40" y2="64" stroke={P.black} strokeWidth="1.5" />
-      <line x1="30" y1="56" x2="50" y2="56" stroke={P.black} strokeWidth="1.5" />
-      <rect x="130" y="48" width="20" height="16" fill="#bae6fd" stroke={P.black} strokeWidth="2" />
-      <line x1="140" y1="48" x2="140" y2="64" stroke={P.black} strokeWidth="1.5" />
-      <line x1="130" y1="56" x2="150" y2="56" stroke={P.black} strokeWidth="1.5" />
-
-      {/* Roof */}
-      <polygon points="90,8 10,42 170,42" fill={roof.main} stroke={P.black} strokeWidth="2.5" />
-      {/* Roof shade (right side) */}
-      <polygon points="90,8 170,42 90,42" fill={roof.shade} opacity="0.3" />
-      {/* Roof highlight (left side) */}
-      <polygon points="90,8 10,42 50,42" fill={roof.light} opacity="0.3" />
-      {/* Roof tiles */}
-      {[20, 50, 80, 110, 140].map(x => (
-        <line key={x} x1={x} y1={20 + (90 - x) * 0.15} x2={x + 20} y2={20 + (70 - x) * 0.15}
-          stroke={P.black} strokeWidth="0.8" opacity="0.3" />
-      ))}
-
-      {/* Hover highlight glow */}
-      {isHovered && (
-        <rect x="18" y="38" width="144" height="56" fill="white" opacity="0.15" rx="2" />
-      )}
-
-      {/* Name plate above roof */}
-      <text x="90" y="6" textAnchor="middle" fontSize="8" fill={P.black} fontFamily="monospace" fontWeight="bold">
-        {name}
-      </text>
-
-      {/* Phase icon */}
-      <text x="90" y="80" textAnchor="middle" fontSize="14">{icon}</text>
-    </svg>
-  )
-}
-
-// ================================================================
-// WALKING CHICKEN
-// ================================================================
-function WalkingChicken({ left, top, delay, tick }: { left: string; top: string; delay: number; tick: number }) {
-  const frame = Math.floor((tick + delay) / 2) % 4
-  const dir = frame < 2 ? 1 : -1
-  const bob = Math.sin(tick * 0.6 + delay) * 2
-
-  return (
-    <svg className="absolute pointer-events-none z-[6]"
-      style={{ left, top, width: '18px', height: '18px', transform: `translateY(${bob}px) scaleX(${dir})`, imageRendering: 'pixelated' }}
-      viewBox="0 0 18 18">
-      {/* Body */}
-      <ellipse cx="9" cy="11" rx="5" ry="3.5" fill="#fbbf24" stroke={P.black} strokeWidth="1.5" />
-      {/* Head */}
-      <circle cx="14" cy="8" r="3" fill="#fbbf24" stroke={P.black} strokeWidth="1.5" />
-      {/* Eye */}
-      <circle cx="15" cy="7" r="1" fill={P.black} />
-      {/* Beak */}
-      <polygon points="17,8 18,9 17,10" fill="#f97316" stroke={P.black} strokeWidth="0.8" />
-      {/* Comb */}
-      <rect x="13" y="4" width="3" height="2" fill={P.red1} stroke={P.black} strokeWidth="0.8" rx="0.5" />
-      {/* Wing */}
-      <ellipse cx="7" cy="10" rx="3" ry="2.5" fill="#f59e0b" stroke={P.black} strokeWidth="1" />
-      {/* Legs */}
-      <line x1="7" y1="14" x2="6" y2="17" stroke={P.orange1 || '#f97316'} strokeWidth="1.5" />
-      <line x1="11" y1="14" x2="12" y2="17" stroke="#f97316" strokeWidth="1.5" />
-    </svg>
-  )
-}
-
-// ================================================================
-// POKEMON DIALOG-BOX TOOLTIP
-// ================================================================
-function PokeTooltip({ shed, align }: {
+function GtaTooltip({ shed }: {
   shed: {
     id: string; name: string; hens: number; layingRate: number
     isLaying: boolean; cycleMonth: number; phase: PhaseKey
     eggsPerDay: number; eggRevenue: number; feedCost: number
     netBalance: number; weeksLabel: string; progress: number
   }
-  align: 'left' | 'right'
 }) {
-  const roof = PHASE_ROOF[shed.phase]
-  const phaseColor = roof.main
+  const phase = PHASE_FILL[shed.phase]
 
   return (
-    <div className="border-[3px] border-gray-800 rounded-lg overflow-hidden shadow-lg"
-      style={{
-        background: 'linear-gradient(135deg, #fefce8 0%, #fef9c3 50%, #fef08a 100%)',
-        animation: 'fadeIn 0.15s ease-out',
-      }}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-2.5 py-1.5 border-b-[3px] border-gray-800"
-        style={{ backgroundColor: phaseColor }}>
-        <div className="flex items-center gap-1.5">
-          <span className="text-sm">{PHASE_ICONS[shed.phase]}</span>
-          <span className="text-[10px] font-bold text-white drop-shadow-sm">{shed.name}</span>
-        </div>
-        <span className="text-[9px] font-bold text-white/90 bg-black/20 px-1.5 py-0.5 rounded">
+    <div className="border-2 border-gray-700 rounded-sm overflow-hidden shadow-xl"
+      style={{ background: 'linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%)' }}>
+      {/* Header with phase color */}
+      <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-gray-600"
+        style={{ backgroundColor: phase.accent }}>
+        <span className="text-[10px] font-bold text-white font-mono">{shed.name}</span>
+        <span className="text-[8px] font-bold text-white/80 bg-black/20 px-1.5 py-0.5 rounded-sm">
           {PHASE_LABELS[shed.phase]}
         </span>
       </div>
 
       {/* Body */}
       <div className="px-2.5 py-2 space-y-1.5">
-        {/* Row 1: Hens + Laying rate */}
+        {/* Hens */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <span className="text-[10px]">&#x1F414;</span>
-            <span className="text-[10px] font-bold text-gray-800">{fmtNum(shed.hens)}</span>
-            <span className="text-[8px] text-gray-500">aves</span>
-          </div>
-          {shed.isLaying && (
-            <div className="flex items-center gap-1">
-              <span className="text-[9px] font-bold text-gray-800">{shed.layingRate}%</span>
-              <span className="text-[8px] text-gray-500">postura</span>
-            </div>
-          )}
+          <span className="text-[8px] text-gray-400 font-mono">AVES</span>
+          <span className="text-[10px] font-bold text-white font-mono">{fmtNum(shed.hens)}</span>
         </div>
 
-        {/* Row 2: Production or Crianza */}
-        {shed.isLaying ? (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
-              <span className="text-[10px]">&#x1F95A;</span>
-              <span className="text-[10px] font-bold text-orange-700">{fmtNum(shed.eggsPerDay)}</span>
-              <span className="text-[8px] text-gray-500">huevos/dia</span>
-            </div>
+        {/* Phase info */}
+        {!shed.isLaying ? (
+          <div className="flex items-center justify-between">
+            <span className="text-[8px] text-gray-400 font-mono">CRIANZA</span>
+            <span className="text-[9px] text-yellow-400 font-mono">Mes {shed.cycleMonth} ({shed.weeksLabel})</span>
           </div>
         ) : (
-          <div className="text-[9px] text-gray-500 italic">
-            Crianza - Mes {shed.cycleMonth} ({shed.weeksLabel})
-          </div>
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-[8px] text-gray-400 font-mono">POSTURA</span>
+              <span className="text-[10px] font-bold text-yellow-400 font-mono">{shed.layingRate}%</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[8px] text-gray-400 font-mono">HUEVOS/DIA</span>
+              <span className="text-[10px] font-bold text-orange-400 font-mono">{fmtNum(shed.eggsPerDay)}</span>
+            </div>
+          </>
         )}
 
         {/* Separator */}
-        <div className="border-t border-gray-300" />
+        <div className="border-t border-gray-700" />
 
-        {/* Row 3: Revenue + Feed cost */}
+        {/* Financials (only if laying) */}
         {shed.isLaying && (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          <div className="grid grid-cols-3 gap-1">
             <div>
-              <p className="text-[7px] text-gray-400 font-bold uppercase">Ingreso</p>
-              <p className="text-[10px] font-bold text-green-700">{fmtRD(shed.eggRevenue)}</p>
+              <p className="text-[6px] text-gray-500 font-mono">INGRESO</p>
+              <p className="text-[9px] font-bold text-green-400 font-mono">{fmtRD(shed.eggRevenue)}</p>
             </div>
             <div>
-              <p className="text-[7px] text-gray-400 font-bold uppercase">Feed</p>
-              <p className="text-[10px] font-bold text-red-600">{fmtRD(shed.feedCost)}</p>
+              <p className="text-[6px] text-gray-500 font-mono">FEED</p>
+              <p className="text-[9px] font-bold text-red-400 font-mono">{fmtRD(shed.feedCost)}</p>
             </div>
             <div>
-              <p className="text-[7px] text-gray-400 font-bold uppercase">Neto</p>
-              <p className={`text-[10px] font-bold ${shed.netBalance >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+              <p className="text-[6px] text-gray-500 font-mono">NETO</p>
+              <p className={`text-[9px] font-bold font-mono ${shed.netBalance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {fmtRD(shed.netBalance)}
               </p>
             </div>
           </div>
         )}
 
-        {/* Progress bar - cycle */}
+        {/* Cycle progress */}
         <div>
           <div className="flex items-center justify-between mb-0.5">
-            <span className="text-[7px] text-gray-400 font-bold uppercase">Ciclo</span>
-            <span className="text-[8px] font-bold text-gray-600">Mes {shed.cycleMonth}/20</span>
+            <span className="text-[7px] text-gray-500 font-mono">CICLO</span>
+            <span className="text-[8px] text-gray-300 font-mono">{shed.cycleMonth}/20</span>
           </div>
-          <div className="h-2.5 bg-gray-300 border border-gray-500 rounded-sm overflow-hidden">
-            <div
-              className="h-full border-r border-gray-500"
+          <div className="h-2 bg-gray-700 rounded-sm overflow-hidden">
+            <div className="h-full rounded-sm transition-all duration-300"
               style={{
                 width: `${shed.progress}%`,
-                backgroundColor: shed.isLaying ? '#4ade80' : '#38bdf8',
-                transition: 'width 0.3s',
+                backgroundColor: shed.isLaying ? phase.fill : '#6898c8',
               }}
             />
           </div>
@@ -670,13 +609,13 @@ function PokeTooltip({ shed, align }: {
 }
 
 // ================================================================
-// HUD STAT BLOCK
+// HUD STAT
 // ================================================================
-function StatBlock({ label, value, icon, bg, color }: { label: string; value: string; icon: string; bg: string; color: string }) {
+function HudStat({ label, value, c }: { label: string; value: string; c: string }) {
   return (
-    <div className={`flex flex-col items-center justify-center px-2 py-1.5 ${bg}`}>
-      <p className="text-[7px] font-bold text-gray-400 leading-none mb-0.5">{label}</p>
-      <p className={`text-[11px] font-bold ${color} leading-none`}>{value}</p>
+    <div className="flex flex-col items-center justify-center px-1 py-1.5">
+      <p className="text-[7px] text-gray-500 font-mono leading-none mb-0.5">{label}</p>
+      <p className={`text-[11px] font-bold font-mono ${c} leading-none`}>{value}</p>
     </div>
   )
 }
