@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -43,25 +43,15 @@ export default function BackupPanel({ goBack, isSuperadmin }: { goBack: () => vo
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge')
   const [confirmImport, setConfirmImport] = useState(false)
 
-  // Backup history (stored in localStorage)
+  // Backup history (in-memory only — no localStorage)
   const [backupHistory, setBackupHistory] = useState<BackupEntry[]>([])
 
-  // Weekly schedule
+  // Weekly schedule (in-memory only)
   const [weeklySchedule, setWeeklySchedule] = useState(false)
-
-  useEffect(() => {
-    const saved = localStorage.getItem('granja-nidal-backup-history')
-    if (saved) {
-      try { setBackupHistory(JSON.parse(saved)) } catch { /* ignore */ }
-    }
-    const schedule = localStorage.getItem('granja-nidal-weekly-backup')
-    setWeeklySchedule(schedule === 'true')
-  }, [])
 
   const saveHistory = (entry: BackupEntry) => {
     const updated = [entry, ...backupHistory].slice(0, 20)
     setBackupHistory(updated)
-    localStorage.setItem('granja-nidal-backup-history', JSON.stringify(updated))
   }
 
   // Export all data as JSON
@@ -212,9 +202,7 @@ export default function BackupPanel({ goBack, isSuperadmin }: { goBack: () => vo
   }
 
   const toggleWeeklyBackup = () => {
-    const newVal = !weeklySchedule
-    setWeeklySchedule(newVal)
-    localStorage.setItem('granja-nidal-weekly-backup', String(newVal))
+    setWeeklySchedule(prev => !prev)
   }
 
   return (

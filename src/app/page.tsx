@@ -707,63 +707,16 @@ export default function Home() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [configOpen, setConfigOpen] = useState(false)
 
-  // ---- Core data state (preserved exactly) ----
-  const [config, setConfig] = useState<FarmConfig>(() => {
-    if (typeof window !== 'undefined') {
-      const savedVersion = localStorage.getItem('granja-wd80-config-version')
-      const saved = localStorage.getItem('granja-wd80-config')
-      if (saved && savedVersion === String(2)) {
-        try {
-          const parsed = JSON.parse(saved)
-          return { ...DEFAULT_CONFIG, ...parsed, feedPhases: { ...DEFAULT_FEED, ...(parsed.feedPhases || {}) } }
-        } catch { /* ignore */ }
-      } else if (saved && savedVersion !== String(2)) {
-        try {
-          const parsed = JSON.parse(saved)
-          localStorage.setItem('granja-wd80-config-version', String(2))
-          return { ...DEFAULT_CONFIG, ...parsed, feedPhases: { ...DEFAULT_FEED } }
-        } catch { /* ignore */ }
-      }
-      localStorage.setItem('granja-wd80-config-version', String(2))
-    }
-    return DEFAULT_CONFIG
-  })
-  const [batches, setBatches] = useState<BatchConfig[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('granja-wd80-batches')
-      if (saved) {
-        try { return JSON.parse(saved) } catch { /* ignore */ }
-      }
-    }
-    return []
-  })
-  const [savedRecords, setSavedRecords] = useState<MonthlyRecord[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('granja-wd80-records')
-      if (saved) {
-        try { return JSON.parse(saved) } catch { /* ignore */ }
-      }
-    }
-    return []
-  })
-  const [structuralExpenses, setStructuralExpenses] = useState<StructuralExpense[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('granja-wd80-structural')
-      if (saved) {
-        try { return JSON.parse(saved) } catch { /* ignore */ }
-      }
-    }
-    return DEFAULT_STRUCTURAL_EXPENSES
-  })
+  // ---- Core data state (Supabase is source of truth) ----
+  const [config, setConfig] = useState<FarmConfig>(DEFAULT_CONFIG)
+  const [batches, setBatches] = useState<BatchConfig[]>([])
+  const [savedRecords, setSavedRecords] = useState<MonthlyRecord[]>([])
+  const [structuralExpenses, setStructuralExpenses] = useState<StructuralExpense[]>(DEFAULT_STRUCTURAL_EXPENSES)
   const [notes, setNotes] = useState('')
   const [expandedRecord, setExpandedRecord] = useState<string | null>(null)
   const [dashboardDeleteBatch, setDashboardDeleteBatch] = useState<BatchConfig | null>(null)
 
-  // Persist to localStorage (cache only — Supabase is source of truth)
-  useEffect(() => { localStorage.setItem('granja-wd80-config', JSON.stringify(config)) }, [config])
-  useEffect(() => { localStorage.setItem('granja-wd80-batches', JSON.stringify(batches)) }, [batches])
-  useEffect(() => { localStorage.setItem('granja-wd80-records', JSON.stringify(savedRecords)) }, [savedRecords])
-  useEffect(() => { localStorage.setItem('granja-wd80-structural', JSON.stringify(structuralExpenses)) }, [structuralExpenses])
+  // Data is persisted to Supabase — no localStorage cache
 
   // ---- Initial fetch from Supabase (shared farm data) ----
   const dataLoadedRef = useRef(false)
@@ -998,8 +951,6 @@ export default function Home() {
     setConfig(DEFAULT_CONFIG)
     setBatches([])
     setNotes('')
-    localStorage.removeItem('granja-wd80-config')
-    localStorage.removeItem('granja-wd80-batches')
   }, [])
 
   const resetSection = useCallback((section: string) => {

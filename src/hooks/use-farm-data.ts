@@ -2,89 +2,11 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
-import { useAuth } from '@/hooks/use-auth'
 import { isSupabaseConfigured, getFarmId, setFarmId as storeFarmId } from '@/lib/supabase'
 import type { FarmConfig, BatchConfig, StructuralExpense, MonthlyRecord } from '@/lib/farm-data'
 import {
   DEFAULT_CONFIG, DEFAULT_FEED, DEFAULT_STRUCTURAL_EXPENSES,
 } from '@/lib/farm-data'
-
-// ================================================================
-// LOCAL STORAGE HELPERS (fallback)
-// SECURITY FIX VULN-17: Safe JSON parse with basic type validation
-// ================================================================
-function readLS<T>(key: string, fallback: T): T {
-  try {
-    const saved = localStorage.getItem(key)
-    if (!saved) return fallback
-    const parsed = JSON.parse(saved)
-    // Basic validation: reject null/undefined for non-null fallbacks,
-    // and reject non-object types when fallback is an object
-    if (parsed === null && fallback !== null) return fallback
-    if (typeof parsed !== typeof fallback) return fallback
-    if (Array.isArray(fallback) && !Array.isArray(parsed)) return fallback
-    return parsed as T
-  } catch {
-    // JSON parse error or type mismatch — corrupted data, clear it
-    try { localStorage.removeItem(key) } catch { /* ignore */ }
-    return fallback
-  }
-}
-
-function writeLS(key: string, value: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch { /* ignore */ }
-}
-
-// ================================================================
-// FARM CONFIG - LocalStorage
-// ================================================================
-export function getLocalConfig(): FarmConfig {
-  const saved = readLS<FarmConfig | null>('granja-wd80-config', null)
-  if (saved) {
-    return { ...DEFAULT_CONFIG, ...saved, feedPhases: { ...DEFAULT_FEED, ...(saved.feedPhases || {}) } }
-  }
-  return DEFAULT_CONFIG
-}
-
-export function saveLocalConfig(config: FarmConfig): void {
-  writeLS('granja-wd80-config', config)
-  writeLS('granja-wd80-config-version', '2')
-}
-
-// ================================================================
-// BATCHES - LocalStorage
-// ================================================================
-export function getLocalBatches(): BatchConfig[] {
-  return readLS<BatchConfig[]>('granja-wd80-batches', [])
-}
-
-export function saveLocalBatches(batches: BatchConfig[]): void {
-  writeLS('granja-wd80-batches', batches)
-}
-
-// ================================================================
-// RECORDS - LocalStorage
-// ================================================================
-export function getLocalRecords(): MonthlyRecord[] {
-  return readLS<MonthlyRecord[]>('granja-wd80-records', [])
-}
-
-export function saveLocalRecords(records: MonthlyRecord[]): void {
-  writeLS('granja-wd80-records', records)
-}
-
-// ================================================================
-// STRUCTURAL EXPENSES - LocalStorage
-// ================================================================
-export function getLocalStructuralExpenses(): StructuralExpense[] {
-  return readLS<StructuralExpense[]>('granja-wd80-structural', DEFAULT_STRUCTURAL_EXPENSES)
-}
-
-export function saveLocalStructuralExpenses(expenses: StructuralExpense[]): void {
-  writeLS('granja-wd80-structural', expenses)
-}
 
 // ================================================================
 // SUPABASE CONNECTION CHECK
@@ -103,7 +25,7 @@ export function useSupabaseStatus() {
 }
 
 // ================================================================
-// MAIN DATA PROVIDER HOOK
+// MAIN DATA PROVIDER HOOK (Supabase only — no localStorage)
 // ================================================================
 export function useFarmData() {
   const queryClient = useQueryClient()
@@ -115,7 +37,7 @@ export function useFarmData() {
   const configQuery = useQuery({
     queryKey: ['farm-config', farmId],
     queryFn: async (): Promise<FarmConfig> => {
-      if (!useSupabase) return getLocalConfig()
+      if (!useSupabase || !farmId) return DEFAULT_CONFIG
       const res = await fetch(`/api/config?farm_id=${farmId}`)
       const data = await res.json()
       if (data.config && Object.keys(data.config).length > 0) {
@@ -130,7 +52,7 @@ export function useFarmData() {
   const batchesQuery = useQuery({
     queryKey: ['batches', farmId],
     queryFn: async (): Promise<BatchConfig[]> => {
-      if (!useSupabase) return getLocalBatches()
+      if (!useSupabase || !farmId) return []
       const res = await fetch(`/api/batches?farm_id=${farmId}`)
       const data = await res.json()
       if (data.batches && data.batches.length > 0) {
@@ -144,7 +66,7 @@ export function useFarmData() {
           phase: b.phase as BatchConfig['phase'],
         }))
       }
-      return getLocalBatches()
+      return []
     },
     staleTime: 30000,
   })
@@ -153,7 +75,7 @@ export function useFarmData() {
   const recordsQuery = useQuery({
     queryKey: ['monthly-records', farmId],
     queryFn: async (): Promise<MonthlyRecord[]> => {
-      if (!useSupabase) return getLocalRecords()
+      if (!useSupabase || !farmId) return []
       const res = await fetch(`/api/monthly-records?farm_id=${farmId}`)
       const data = await res.json()
       if (data.records && data.records.length > 0) {
@@ -169,7 +91,7 @@ export function useFarmData() {
           net: (r.net || 0) as number,
         }))
       }
-      return getLocalRecords()
+      return []
     },
     staleTime: 30000,
   })
@@ -178,7 +100,7 @@ export function useFarmData() {
   const structuralQuery = useQuery({
     queryKey: ['structural-expenses', farmId],
     queryFn: async (): Promise<StructuralExpense[]> => {
-      if (!useSupabase) return getLocalStructuralExpenses()
+      if (!useSupabase || !farmId) return DEFAULT_STRUCTURAL_EXPENSES
       const res = await fetch(`/api/structural-expenses?farm_id=${farmId}`)
       const data = await res.json()
       if (data.expenses && data.expenses.length > 0) {
@@ -191,7 +113,7 @@ export function useFarmData() {
           isActive: (e.is_active !== undefined ? e.is_active : true) as boolean,
         }))
       }
-      return getLocalStructuralExpenses()
+      return DEFAULT_STRUCTURAL_EXPENSES
     },
     staleTime: 30000,
   })
@@ -199,8 +121,7 @@ export function useFarmData() {
   // ---- Mutation: Save Config ----
   const saveConfigMutation = useMutation({
     mutationFn: async (config: FarmConfig) => {
-      saveLocalConfig(config)
-      if (useSupabase) {
+      if (useSupabase && farmId) {
         await fetch(`/api/config?farm_id=${farmId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -216,9 +137,7 @@ export function useFarmData() {
   // ---- Mutation: Save Batches ----
   const saveBatchesMutation = useMutation({
     mutationFn: async (batches: BatchConfig[]) => {
-      saveLocalBatches(batches)
-      if (useSupabase) {
-        // For simplicity, sync all batches (delete + reinsert)
+      if (useSupabase && farmId) {
         for (const batch of batches) {
           const existingRes = await fetch(`/api/batches?farm_id=${farmId}`)
           const existingData = await existingRes.json()
@@ -263,7 +182,7 @@ export function useFarmData() {
   // ---- Mutation: Save Records ----
   const saveRecordsMutation = useMutation({
     mutationFn: async (records: MonthlyRecord[]) => {
-      saveLocalRecords(records)
+      // Records are saved via Supabase API in page.tsx
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['monthly-records'] })
@@ -273,28 +192,10 @@ export function useFarmData() {
   // ---- Mutation: Save Structural ----
   const saveStructuralMutation = useMutation({
     mutationFn: async (expenses: StructuralExpense[]) => {
-      saveLocalStructuralExpenses(expenses)
+      // Structural expenses are saved via Supabase API in page.tsx
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['structural-expenses'] })
-    },
-  })
-
-  // ---- Create Farm ----
-  const createFarmMutation = useMutation({
-    mutationFn: async ({ name, slug }: { name: string; slug: string }) => {
-      const res = await fetch('/api/farm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, slug }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      return data.farm
-    },
-    onSuccess: (farm) => {
-      storeFarmId(farm.id)
-      queryClient.invalidateQueries()
     },
   })
 
@@ -326,10 +227,10 @@ export function useFarmData() {
     farmId,
 
     // Data
-    config: configQuery.data ?? getLocalConfig(),
-    batches: batchesQuery.data ?? getLocalBatches(),
-    records: recordsQuery.data ?? getLocalRecords(),
-    structuralExpenses: structuralQuery.data ?? getLocalStructuralExpenses(),
+    config: configQuery.data ?? DEFAULT_CONFIG,
+    batches: batchesQuery.data ?? [],
+    records: recordsQuery.data ?? [],
+    structuralExpenses: structuralQuery.data ?? DEFAULT_STRUCTURAL_EXPENSES,
 
     // Loading
     isLoading: configQuery.isLoading || batchesQuery.isLoading,
@@ -339,7 +240,6 @@ export function useFarmData() {
     saveBatches: saveBatchesMutation.mutate,
     saveRecords: saveRecordsMutation.mutate,
     saveStructural: saveStructuralMutation.mutate,
-    createFarm: createFarmMutation.mutate,
     checkConnection: checkConnectionMutation.mutate,
     setFarmId,
     refetch: () => {

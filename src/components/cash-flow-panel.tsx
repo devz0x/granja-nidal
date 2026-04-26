@@ -71,8 +71,6 @@ interface CashFlowEntry {
 // ================================================================
 // CONSTANTS
 // ================================================================
-const STORAGE_KEY = 'granja-wd80-cash-flow'
-const BALANCE_KEY = 'granja-wd80-cash-flow-balances'
 const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
 
 const CATEGORIES: Record<CashFlowCategory, {
@@ -202,13 +200,6 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
   // ---- Fetch from Supabase on mount ----
   useEffect(() => {
     if (!FARM_ID) {
-      // Fallback to localStorage if no farm ID
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        if (saved) setEntries(JSON.parse(saved))
-        const savedBalances = localStorage.getItem(BALANCE_KEY)
-        if (savedBalances) setOpeningBalances(JSON.parse(savedBalances))
-      } catch { /* ignore */ }
       setLoading(false)
       return
     }
@@ -235,35 +226,13 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
           if (data.balances) {
             setOpeningBalances(data.balances as Record<string, number>)
           }
-
-          // Also update localStorage as cache
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped))
-          localStorage.setItem(BALANCE_KEY, JSON.stringify(data.balances || {}))
-        } else {
-          // Fallback to localStorage
-          try {
-            const saved = localStorage.getItem(STORAGE_KEY)
-            if (saved) setEntries(JSON.parse(saved))
-            const savedBalances = localStorage.getItem(BALANCE_KEY)
-            if (savedBalances) setOpeningBalances(JSON.parse(savedBalances))
-          } catch { /* ignore */ }
         }
       })
-      .catch(() => {
-        // On error, fallback to localStorage
-        try {
-          const saved = localStorage.getItem(STORAGE_KEY)
-          if (saved) setEntries(JSON.parse(saved))
-          const savedBalances = localStorage.getItem(BALANCE_KEY)
-          if (savedBalances) setOpeningBalances(JSON.parse(savedBalances))
-        } catch { /* ignore */ }
-      })
+      .catch(() => { /* Supabase fetch failed */ })
       .finally(() => setLoading(false))
   }, [])
 
-  // ---- Local persistence (cache) ----
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)) }, [entries])
-  useEffect(() => { localStorage.setItem(BALANCE_KEY, JSON.stringify(openingBalances)) }, [openingBalances])
+  // Data is persisted to Supabase — no localStorage cache
 
   // ---- Inline Editing State ----
   const [inlineEdit, setInlineEdit] = useState<{ entryId: string; field: 'date' | 'description' | 'amount' | 'category' } | null>(null)
@@ -513,10 +482,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
     if (FARM_ID) {
       setSyncing(true)
       fetch(`/api/cash-flow?farm_id=${FARM_ID}`, { method: 'DELETE' })
-        .then(() => {
-          localStorage.removeItem(STORAGE_KEY)
-          localStorage.removeItem(BALANCE_KEY)
-        })
+        .then(() => {})
         .catch(() => {})
         .finally(() => setSyncing(false))
     }
@@ -680,7 +646,6 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
             createdAt: (e.createdAt || e.created_at || '') as string,
           }))
           setEntries(mapped)
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped))
         }
       }
     } catch { /* ignore */ }

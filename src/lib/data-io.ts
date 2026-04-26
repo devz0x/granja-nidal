@@ -1,22 +1,9 @@
 // ================================================================
-// DATA I/O - Export/Import para respaldo y migracion de datos
+// DATA I/O - Export/Import via Supabase API (no localStorage)
 // Granja Nidal
 // ================================================================
 
-// ================================================================
-// LOCALSTORAGE KEYS (centralizados)
-// ================================================================
-const LS_KEYS = {
-  config: 'granja-wd80-config',
-  configVersion: 'granja-wd80-config-version',
-  batches: 'granja-wd80-batches',
-  records: 'granja-wd80-records',
-  structural: 'granja-wd80-structural',
-  dailyEntries: 'granja-wd80-daily-entries',
-  reminders: 'granja-wd80-reminders',
-  vaccinations: 'granja-wd80-vaccinations',
-  feedInventory: 'granja-wd80-feed-inventory',
-} as const
+const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
 
 // ================================================================
 // TYPES
@@ -25,16 +12,7 @@ export interface ExportData {
   version: number
   app: 'granja-nidal'
   exportDate: string
-  data: {
-    config: unknown
-    batches: unknown
-    records: unknown
-    structuralExpenses: unknown
-    dailyEntries: unknown
-    reminders: unknown[]
-    vaccinations: unknown[]
-    feedInventory: unknown[]
-  }
+  data: Record<string, unknown>
 }
 
 export interface ImportResult {
@@ -53,137 +31,60 @@ export interface ImportResult {
 }
 
 // ================================================================
-// EXPORT ALL DATA AS JSON
+// FETCH ALL FARM DATA FROM SUPABASE
 // ================================================================
-export function exportAllDataAsJSON(): string {
+async function fetchAllFarmData(): Promise<Record<string, unknown> | null> {
+  if (!FARM_ID) return null
+  try {
+    const res = await fetch(`/api/backup?farm_id=${FARM_ID}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.backup || null
+  } catch {
+    return null
+  }
+}
+
+// ================================================================
+// EXPORT ALL DATA AS JSON (Supabase)
+// ================================================================
+export async function exportAllDataAsJSON(): Promise<string> {
+  const backup = await fetchAllFarmData()
   const data: ExportData = {
     version: 2,
     app: 'granja-nidal',
     exportDate: new Date().toISOString(),
-    data: {
-      config: readLS(LS_KEYS.config),
-      batches: readLS(LS_KEYS.batches),
-      records: readLS(LS_KEYS.records),
-      structuralExpenses: readLS(LS_KEYS.structural),
-      dailyEntries: readLS(LS_KEYS.dailyEntries),
-      reminders: parseLSArray(LS_KEYS.reminders),
-      vaccinations: parseLSArray(LS_KEYS.vaccinations),
-      feedInventory: parseLSArray(LS_KEYS.feedInventory),
-    },
+    data: backup || {},
   }
   return JSON.stringify(data, null, 2)
 }
 
 // ================================================================
-// IMPORT ALL DATA FROM JSON
+// EXPORT DAILY PRODUCTION AS CSV (Supabase)
 // ================================================================
-export function importAllDataFromJSON(jsonString: string): ImportResult {
-  try {
-    const parsed = JSON.parse(jsonString) as ExportData
+export async function exportDailyEntriesAsCSV(): Promise<string> {
+  const backup = await fetchAllFarmData()
+  if (!backup) return ''
 
-    // Validacion basica
-    if (!parsed.app || parsed.app !== 'granja-nidal') {
-      return { success: false, message: 'Archivo invalido: no es un respaldo de Granja Nidal.' }
-    }
-
-    if (!parsed.data) {
-      return { success: false, message: 'Archivo corrupto: no contiene datos.' }
-    }
-
-    const stats: ImportResult['stats'] = {
-      config: false,
-      batches: 0,
-      records: 0,
-      structural: 0,
-      dailyEntries: 0,
-      reminders: 0,
-      vaccinations: 0,
-      feedInventory: 0,
-    }
-
-    // Importar cada seccion
-    if (parsed.data.config) {
-      writeLS(LS_KEYS.config, parsed.data.config)
-      writeLS(LS_KEYS.configVersion, String(parsed.version || 2))
-      stats.config = true
-    }
-
-    if (parsed.data.batches) {
-      const arr = ensureArray(parsed.data.batches)
-      writeLS(LS_KEYS.batches, arr)
-      stats.batches = arr.length
-    }
-
-    if (parsed.data.records) {
-      const arr = ensureArray(parsed.data.records)
-      writeLS(LS_KEYS.records, arr)
-      stats.records = arr.length
-    }
-
-    if (parsed.data.structuralExpenses) {
-      const arr = ensureArray(parsed.data.structuralExpenses)
-      writeLS(LS_KEYS.structural, arr)
-      stats.structural = arr.length
-    }
-
-    if (parsed.data.dailyEntries) {
-      const arr = ensureArray(parsed.data.dailyEntries)
-      writeLS(LS_KEYS.dailyEntries, arr)
-      stats.dailyEntries = arr.length
-    }
-
-    if (parsed.data.reminders) {
-      const arr = ensureArray(parsed.data.reminders)
-      writeLS(LS_KEYS.reminders, arr)
-      stats.reminders = arr.length
-    }
-
-    if (parsed.data.vaccinations) {
-      const arr = ensureArray(parsed.data.vaccinations)
-      writeLS(LS_KEYS.vaccinations, arr)
-      stats.vaccinations = arr.length
-    }
-
-    if (parsed.data.feedInventory) {
-      const arr = ensureArray(parsed.data.feedInventory)
-      writeLS(LS_KEYS.feedInventory, arr)
-      stats.feedInventory = arr.length
-    }
-
-    return {
-      success: true,
-      message: `Importacion exitosa. Lotes: ${stats.batches}, Registros: ${stats.records}, Produccion diaria: ${stats.dailyEntries}, Alertas: ${stats.reminders}, Vacunas: ${stats.vaccinations}.`,
-      stats,
-    }
-  } catch (e) {
-    return { success: false, message: `Error al importar: ${e instanceof Error ? e.message : 'Formato invalido.'}` }
-  }
-}
-
-// ================================================================
-// EXPORT DAILY PRODUCTION AS CSV
-// ================================================================
-export function exportDailyEntriesAsCSV(): string {
-  const entries = parseLSArray(LS_KEYS.dailyEntries)
+  const entries = (backup.daily_entries || []) as Array<Record<string, unknown>>
   if (entries.length === 0) return ''
 
-  const batches = parseLSArray(LS_KEYS.batches) as Array<{ id: string; name: string }>
+  const batches = (backup.batches || []) as Array<{ id: string; name: string }>
   const batchNames: Record<string, string> = {}
   batches.forEach(b => { batchNames[b.id] = b.name })
 
   const headers = ['Fecha', 'Lote', 'Huevos Recogidos', 'Huevos Rotos', 'Mortalidad', 'Feed (kg)', 'Agua (L)', 'Notas']
 
   const rows = entries.map(e => {
-    const entry = e as Record<string, unknown>
     return [
-      String(entry.date || ''),
-      String(batchNames[entry.batchId as string] || entry.batchId || ''),
-      String(entry.eggsCollected || 0),
-      String(entry.eggsBroken || 0),
-      String(entry.mortality || 0),
-      String(entry.feedKg || 0),
-      String(entry.waterLiters || 0),
-      `"${String(entry.notes || '').replace(/"/g, '""')}"`,
+      String(e.date || ''),
+      String(batchNames[e.batch_id as string] || e.batch_id || ''),
+      String(e.eggs_collected || 0),
+      String(e.eggs_broken || 0),
+      String(e.mortality || 0),
+      String(e.feed_kg || 0),
+      String(e.water_liters || 0),
+      `"${String(e.notes || '').replace(/"/g, '""')}"`,
     ].join(',')
   })
 
@@ -191,16 +92,82 @@ export function exportDailyEntriesAsCSV(): string {
 }
 
 // ================================================================
-// IMPORT DAILY ENTRIES FROM CSV (APPEND)
+// IMPORT ALL DATA FROM JSON (via Supabase backup API)
 // ================================================================
-export function importDailyEntriesFromCSV(csvString: string): ImportResult {
+export async function importAllDataFromJSON(jsonString: string): Promise<ImportResult> {
+  try {
+    const parsed = JSON.parse(jsonString)
+
+    // Validate basic structure
+    if (parsed.app && parsed.app === 'granja-nidal') {
+      // New format — use the backup API
+      if (!FARM_ID) {
+        return { success: false, message: 'No hay granja configurada.' }
+      }
+
+      const res = await fetch(`/api/backup?farm_id=${FARM_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backup: parsed.data || parsed, mode: 'merge' }),
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        return { success: false, message: `Error al importar: ${errData.error || 'Error del servidor.'}` }
+      }
+
+      const result = await res.json()
+      const totalInserted = Object.values(result.results as Record<string, { inserted: number }>)
+        .reduce((sum: number, r) => sum + r.inserted, 0)
+
+      return {
+        success: true,
+        message: `Importacion exitosa. ${totalInserted} registros restaurados desde Supabase.`,
+        stats: {
+          config: true,
+          batches: (result.results?.batches?.inserted) || 0,
+          records: (result.results?.monthly_records?.inserted) || 0,
+          structural: (result.results?.structural_expenses?.inserted) || 0,
+          dailyEntries: (result.results?.daily_entries?.inserted) || 0,
+          reminders: (result.results?.reminders?.inserted) || 0,
+          vaccinations: (result.results?.vaccinations?.inserted) || 0,
+          feedInventory: (result.results?.feed_inventory?.inserted) || 0,
+        },
+      }
+    }
+
+    // Legacy or unknown format — try sending to backup API as-is
+    if (!FARM_ID) {
+      return { success: false, message: 'No hay granja configurada.' }
+    }
+
+    const res = await fetch(`/api/backup?farm_id=${FARM_ID}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backup: parsed, mode: 'merge' }),
+    })
+
+    if (!res.ok) {
+      return { success: false, message: 'Error al importar datos.' }
+    }
+
+    return { success: true, message: 'Importacion completada. Recarga la pagina para ver los cambios.' }
+  } catch (e) {
+    return { success: false, message: `Error al importar: ${e instanceof Error ? e.message : 'Formato invalido.'}` }
+  }
+}
+
+// ================================================================
+// IMPORT DAILY ENTRIES FROM CSV (via Supabase daily-entries API)
+// ================================================================
+export async function importDailyEntriesFromCSV(csvString: string): Promise<ImportResult> {
   try {
     const lines = csvString.trim().split('\n')
     if (lines.length < 2) {
       return { success: false, message: 'CSV vacio o sin datos.' }
     }
 
-    // Parse header to detect column order
+    // Parse header
     const headerLine = lines[0].toLowerCase()
     const cols = headerLine.split(',').map(h => h.trim().replace(/"/g, ''))
 
@@ -217,10 +184,17 @@ export function importDailyEntriesFromCSV(csvString: string): ImportResult {
       return { success: false, message: 'CSV debe tener al menos las columnas "Fecha" y "Huevos".' }
     }
 
-    const existing = parseLSArray(LS_KEYS.dailyEntries)
-    const existingDates = new Set(
-      (existing as Array<Record<string, unknown>>).map(e => `${e.date}-${e.batchId}`)
-    )
+    if (!FARM_ID) {
+      return { success: false, message: 'No hay granja configurada.' }
+    }
+
+    // First, fetch existing batch IDs to resolve names
+    const batchRes = await fetch(`/api/batches?farm_id=${FARM_ID}`)
+    const batchData = await batchRes.json()
+    const batchMap: Record<string, string> = {}
+    for (const b of (batchData.batches || [])) {
+      batchMap[(b.name as string).toLowerCase()] = b.id as string
+    }
 
     let imported = 0
     let skipped = 0
@@ -229,12 +203,11 @@ export function importDailyEntriesFromCSV(csvString: string): ImportResult {
       const line = lines[i].trim()
       if (!line) continue
 
-      // Simple CSV parse (handles quoted fields)
       const values = parseCSVLine(line)
       if (values.length < 2) continue
 
       const date = values[dateIdx]?.trim() || ''
-      const batchId = values[batchIdx]?.trim() || ''
+      const batchName = values[batchIdx]?.trim() || ''
       const eggs = parseInt(values[eggsIdx]?.trim()) || 0
       const broken = brokenIdx >= 0 ? parseInt(values[brokenIdx]?.trim()) || 0 : 0
       const mortality = mortIdx >= 0 ? parseInt(values[mortIdx]?.trim()) || 0 : 0
@@ -242,34 +215,39 @@ export function importDailyEntriesFromCSV(csvString: string): ImportResult {
       const waterL = waterIdx >= 0 ? parseFloat(values[waterIdx]?.trim()) || 0 : 0
       const notes = notesIdx >= 0 ? values[notesIdx]?.trim() || '' : ''
 
-      if (!date || !batchId || eggs < 0) {
+      if (!date || !batchName || eggs < 0) {
         skipped++
         continue
       }
 
-      // Skip duplicates
-      const key = `${date}-${batchId}`
-      if (existingDates.has(key)) {
+      // Resolve batch name to ID
+      const batchId = batchMap[batchName.toLowerCase()]
+      if (!batchId) {
         skipped++
         continue
       }
 
-      existing.push({
-        id: `de-${Date.now()}-${i}`,
-        date,
-        batchId,
-        eggsCollected: Math.max(0, eggs),
-        eggsBroken: Math.max(0, broken),
-        mortality: Math.max(0, mortality),
-        feedKg: Math.max(0, feedKg),
-        waterLiters: Math.max(0, waterL),
-        notes,
-      })
-      imported++
-    }
-
-    if (imported > 0) {
-      writeLS(LS_KEYS.dailyEntries, existing)
+      // Push to Supabase
+      try {
+        const res = await fetch(`/api/daily-entries?farm_id=${FARM_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch_id: batchId,
+            date,
+            eggs_collected: Math.max(0, eggs),
+            eggs_broken: Math.max(0, broken),
+            mortality: Math.max(0, mortality),
+            feed_kg: Math.max(0, feedKg),
+            water_liters: Math.max(0, waterL),
+            notes,
+          }),
+        })
+        if (res.ok) imported++
+        else skipped++
+      } catch {
+        skipped++
+      }
     }
 
     return {
@@ -279,6 +257,57 @@ export function importDailyEntriesFromCSV(csvString: string): ImportResult {
     }
   } catch (e) {
     return { success: false, message: `Error al importar CSV: ${e instanceof Error ? e.message : 'Formato invalido.'}` }
+  }
+}
+
+// ================================================================
+// GET DATA SUMMARY (from Supabase)
+// ================================================================
+export async function getDataSummaryAsync(): Promise<{
+  hasConfig: boolean
+  batchCount: number
+  recordCount: number
+  structuralCount: number
+  dailyEntryCount: number
+  reminderCount: number
+  vaccineCount: number
+  feedInventoryCount: number
+} | null> {
+  const backup = await fetchAllFarmData()
+  if (!backup) return null
+
+  return {
+    hasConfig: !!(backup.config),
+    batchCount: ((backup.batches || []) as unknown[]).length,
+    recordCount: ((backup.monthly_records || []) as unknown[]).length,
+    structuralCount: ((backup.structural_expenses || []) as unknown[]).length,
+    dailyEntryCount: ((backup.daily_entries || []) as unknown[]).length,
+    reminderCount: ((backup.reminders || []) as unknown[]).length,
+    vaccineCount: ((backup.vaccinations || []) as unknown[]).length,
+    feedInventoryCount: ((backup.feed_inventory || []) as unknown[]).length,
+  }
+}
+
+// Synchronous stub returning empty data (for initial render)
+export function getDataSummary(): {
+  hasConfig: boolean
+  batchCount: number
+  recordCount: number
+  structuralCount: number
+  dailyEntryCount: number
+  reminderCount: number
+  vaccineCount: number
+  feedInventoryCount: number
+} {
+  return {
+    hasConfig: false,
+    batchCount: 0,
+    recordCount: 0,
+    structuralCount: 0,
+    dailyEntryCount: 0,
+    reminderCount: 0,
+    vaccineCount: 0,
+    feedInventoryCount: 0,
   }
 }
 
@@ -313,38 +342,6 @@ export function downloadCSV(csv: string, filename?: string) {
 // ================================================================
 // INTERNAL HELPERS
 // ================================================================
-function readLS(key: string): string | null {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-
-function writeLS(key: string, value: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    // Storage full or unavailable
-  }
-}
-
-function parseLSArray(key: string): unknown[] {
-  try {
-    const saved = localStorage.getItem(key)
-    if (!saved) return []
-    const parsed = JSON.parse(saved)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function ensureArray(val: unknown): unknown[] {
-  if (Array.isArray(val)) return val
-  return []
-}
-
 function parseCSVLine(line: string): string[] {
   const result: string[] = []
   let current = ''
@@ -376,29 +373,4 @@ function parseCSVLine(line: string): string[] {
   }
   result.push(current)
   return result
-}
-
-// ================================================================
-// GET DATA SUMMARY (for the UI)
-// ================================================================
-export function getDataSummary(): {
-  hasConfig: boolean
-  batchCount: number
-  recordCount: number
-  structuralCount: number
-  dailyEntryCount: number
-  reminderCount: number
-  vaccineCount: number
-  feedInventoryCount: number
-} {
-  return {
-    hasConfig: !!readLS(LS_KEYS.config),
-    batchCount: parseLSArray(LS_KEYS.batches).length,
-    recordCount: parseLSArray(LS_KEYS.records).length,
-    structuralCount: parseLSArray(LS_KEYS.structural).length,
-    dailyEntryCount: parseLSArray(LS_KEYS.dailyEntries).length,
-    reminderCount: parseLSArray(LS_KEYS.reminders).length,
-    vaccineCount: parseLSArray(LS_KEYS.vaccinations).length,
-    feedInventoryCount: parseLSArray(LS_KEYS.feedInventory).length,
-  }
 }

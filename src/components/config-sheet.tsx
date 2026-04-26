@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import {
   exportAllDataAsJSON, importAllDataFromJSON, exportDailyEntriesAsCSV,
-  importDailyEntriesFromCSV, downloadJSON, downloadCSV, getDataSummary,
+  importDailyEntriesFromCSV, downloadJSON, downloadCSV, getDataSummary, getDataSummaryAsync,
 } from '@/lib/data-io'
 import type { ImportResult } from '@/lib/data-io'
 import type {
@@ -529,28 +529,49 @@ export default function ConfigSheet({
 function DataBackupSection() {
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null)
   const [isImporting, setIsImporting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [summary, setSummary] = useState<ReturnType<typeof getDataSummary> | null>(null)
   const fileInputRef = { current: null as HTMLInputElement | null }
   const csvInputRef = { current: null as HTMLInputElement | null }
 
-  const summary = typeof window !== 'undefined' ? getDataSummary() : null
+  // Fetch summary from Supabase on mount
+  useEffect(() => {
+    getDataSummaryAsync().then(data => {
+      if (data) setSummary(data)
+    })
+  }, [])
 
-  const handleExportJSON = () => {
-    const json = exportAllDataAsJSON()
-    downloadJSON(json)
-    setImportStatus({ success: true, message: 'Respaldo JSON descargado exitosamente.' })
-    setTimeout(() => setImportStatus(null), 4000)
+  const handleExportJSON = async () => {
+    setIsExporting(true)
+    try {
+      const json = await exportAllDataAsJSON()
+      downloadJSON(json)
+      setImportStatus({ success: true, message: 'Respaldo JSON descargado exitosamente.' })
+    } catch {
+      setImportStatus({ success: false, message: 'Error al exportar datos.' })
+    } finally {
+      setIsExporting(false)
+      setTimeout(() => setImportStatus(null), 4000)
+    }
   }
 
-  const handleExportCSV = () => {
-    const csv = exportDailyEntriesAsCSV()
-    if (!csv) {
-      setImportStatus({ success: false, message: 'No hay registros de produccion diaria para exportar.' })
+  const handleExportCSV = async () => {
+    setIsExporting(true)
+    try {
+      const csv = await exportDailyEntriesAsCSV()
+      if (!csv) {
+        setImportStatus({ success: false, message: 'No hay registros de produccion diaria para exportar.' })
+        setTimeout(() => setImportStatus(null), 4000)
+        return
+      }
+      downloadCSV(csv)
+      setImportStatus({ success: true, message: `CSV descargado exitosamente.` })
+    } catch {
+      setImportStatus({ success: false, message: 'Error al exportar CSV.' })
+    } finally {
+      setIsExporting(false)
       setTimeout(() => setImportStatus(null), 4000)
-      return
     }
-    downloadCSV(csv)
-    setImportStatus({ success: true, message: `CSV descargado con ${summary?.dailyEntryCount || 0} registros.` })
-    setTimeout(() => setImportStatus(null), 4000)
   }
 
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -558,9 +579,9 @@ function DataBackupSection() {
     if (!file) return
     setIsImporting(true)
     const reader = new FileReader()
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const text = ev.target?.result as string
-      const result = importAllDataFromJSON(text)
+      const result = await importAllDataFromJSON(text)
       setImportStatus(result)
       setIsImporting(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -582,16 +603,16 @@ function DataBackupSection() {
     if (!file) return
     setIsImporting(true)
     const reader = new FileReader()
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const text = ev.target?.result as string
-      const result = importDailyEntriesFromCSV(text)
+      const result = await importDailyEntriesFromCSV(text)
       setImportStatus(result)
       setIsImporting(false)
       if (csvInputRef.current) csvInputRef.current.value = ''
       setTimeout(() => {
         setImportStatus(null)
         if (result.success) window.location.reload()
-      }, 4000)
+ }, 4000)
     }
     reader.onerror = () => {
       setImportStatus({ success: false, message: 'Error al leer el archivo CSV.' })
@@ -632,11 +653,11 @@ function DataBackupSection() {
         <div>
           <p className="text-[10px] font-semibold text-stone-600 mb-2">EXPORTAR:</p>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={handleExportJSON} className="gap-2 text-xs">
-              <FileJson className="w-3.5 h-3.5 text-blue-600" /> Respaldo completo (JSON)
+            <Button variant="outline" size="sm" onClick={handleExportJSON} className="gap-2 text-xs" disabled={isExporting}>
+              <FileJson className="w-3.5 h-3.5 text-blue-600" /> {isExporting ? 'Exportando...' : 'Respaldo completo (JSON)'}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExportCSV} className="gap-2 text-xs">
-              <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" /> Produccion diaria (CSV)
+            <Button variant="outline" size="sm" onClick={handleExportCSV} className="gap-2 text-xs" disabled={isExporting}>
+              <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" /> {isExporting ? 'Exportando...' : 'Produccion diaria (CSV)'}
             </Button>
           </div>
         </div>
