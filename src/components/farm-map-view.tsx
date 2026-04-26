@@ -49,6 +49,7 @@ interface WeatherData {
 
 interface FarmMapViewProps {
   batches: BatchConfig[]; config: FarmConfig; calculations: CalculationsResult
+  onShedClick?: (batchId: string) => void
 }
 
 // ================================================================
@@ -258,7 +259,7 @@ function seededRandom(seed: number) {
 // ================================================================
 // MAIN COMPONENT
 // ================================================================
-export default function FarmMapView({ batches, config, calculations }: FarmMapViewProps) {
+export default function FarmMapView({ batches, config, calculations, onShedClick }: FarmMapViewProps) {
   const [hoveredShed, setHoveredShed] = useState<string | null>(null)
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number; side: 'left' | 'right' }>({ x: 0, y: 0, side: 'right' })
   const [tick, setTick] = useState(0)
@@ -801,8 +802,9 @@ export default function FarmMapView({ batches, config, calculations }: FarmMapVi
           const isHov = hoveredShed === shed.id
           const phase = PHASE_FILL[shed.phase]
           return (
-            <div key={shed.id} className="absolute z-10 cursor-default"
+            <div key={shed.id} className="absolute z-10 cursor-pointer"
               style={{ left: `${pos.x}%`, top: `${pos.y}%`, width: `${shedW}%`, height: `${shedH}%` }}
+              onClick={() => onShedClick?.(shed.id)}
               onMouseEnter={(e) => handleHover(shed.id, e)}
               onMouseLeave={() => setHoveredShed(null)}>
               <div className="absolute inset-0 translate-x-[3px] translate-y-[3px] rounded-sm"

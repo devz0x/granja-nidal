@@ -1612,7 +1612,7 @@ export default function Home() {
               </Button>
               <h2 className="text-lg font-bold text-stone-800">Vista Granja</h2>
             </div>
-            <FarmMapView batches={batches} config={config} calculations={liveCalcs} />
+            <FarmMapView batches={batches} config={config} calculations={liveCalcs} onShedClick={openLotDetail} />
           </div>
         )}
 
