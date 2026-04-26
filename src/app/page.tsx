@@ -712,18 +712,32 @@ export default function Home() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
-  // ---- Auto-ensure DB setup on first authenticated load (single-farm mode) ----
-  // Run setup once per session (SQL is idempotent with IF NOT EXISTS)
+  // ---- Auto-ensure DB setup + RLS fix on first authenticated load (single-farm mode) ----
   useEffect(() => {
     if (mounted && isSupabaseConfigured() && isAuthenticated) {
       const setupVersion = localStorage.getItem('granja-nidal-setup-version')
-      if (setupVersion !== 'v6') {
-        fetch('/api/admin/setup', { method: 'POST' })
+      if (setupVersion !== 'v7') {
+        // Step 1: Run fix-rls to ensure batches RLS allows authenticated users
+        fetch('/api/admin/fix-rls', { method: 'POST' })
           .then(r => r.json())
           .then(data => {
-            if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v6')
+            console.log('[setup] fix-rls response:', JSON.stringify(data))
+            if (data.success) {
+              // Step 2: Run full setup migration
+              return fetch('/api/admin/setup', { method: 'POST' }).then(r => r.json())
+            } else {
+              toast.error('Error de configuracion', { description: data.error || JSON.stringify(data.diagnostics || {}) })
+            }
           })
-          .catch(() => {})
+          .then(data => {
+            if (data) {
+              console.log('[setup] full migration response:', JSON.stringify(data))
+              if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v7')
+            }
+          })
+          .catch(err => {
+            console.error('[setup] Error:', err)
+          })
       }
     }
   }, [mounted, isAuthenticated])
