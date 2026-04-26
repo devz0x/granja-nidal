@@ -49,7 +49,7 @@ export const batchCreateSchema = z.object({
   laying_rate: z.number().min(0).max(100).default(80),
   is_laying: z.boolean().default(false),
   cycle_month: z.number().min(0).max(200).default(0),
-  phase: z.enum(['pre_inicio', 'levantamiento', 'produccion', 'postura', 'recría'], { error: 'Fase invalida' }).default('pre_inicio'),
+  phase: z.enum(['pre_inicio', 'inicio', 'crecimiento', 'pre_postura', 'postura'], { error: 'Fase invalida' }).default('pre_inicio'),
   sort_order: z.number().int().min(0).default(0),
 })
 

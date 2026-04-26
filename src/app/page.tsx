@@ -45,6 +45,7 @@ import {
   Plus, Trash2, Printer, Banknote,
 } from 'lucide-react'
 // Granja Nidal: single-farm mode — FarmSetup removed
+import { toast } from 'sonner'
 import CashFlowPanel from '@/components/cash-flow-panel'
 import UserManagementPanel from '@/components/user-management-panel'
 import InventoryPanel from '@/components/inventory-panel'
@@ -101,8 +102,12 @@ async function pushConfig(config: Record<string, unknown>) {
 }
 
 // Push a single batch to Supabase via upsert (single atomic call)
-async function pushBatch(batch: Record<string, unknown>) {
-  if (!FARM_ID) return
+// Returns true on success, false on failure (with toast error)
+async function pushBatch(batch: Record<string, unknown>): Promise<boolean> {
+  if (!FARM_ID) {
+    console.error('pushBatch: FARM_ID is not configured')
+    return false
+  }
   try {
     const res = await fetch(`/api/batches?farm_id=${FARM_ID}`, {
       method: 'PUT',
@@ -118,9 +123,17 @@ async function pushBatch(batch: Record<string, unknown>) {
         sort_order: 0,
       }),
     })
-    if (!res.ok) console.error('Failed to push batch:', await res.text())
+    if (!res.ok) {
+      const errorText = await res.text()
+      console.error('Failed to push batch:', res.status, errorText)
+      toast.error('Error al guardar lote', { description: `No se pudo guardar "${batch.name}" en Supabase. (${res.status})` })
+      return false
+    }
+    return true
   } catch (err) {
     console.error('Failed to push batch:', err)
+    toast.error('Error de conexion', { description: 'No se pudo conectar con el servidor para guardar el lote.' })
+    return false
   }
 }
 
@@ -908,13 +921,13 @@ export default function Home() {
         updated.phase = value as PhaseKey
         updated.isLaying = value === 'postura'
       }
-      // Push to Supabase (debounced by React batching)
-      setTimeout(() => pushBatch(updated as unknown as Record<string, unknown>), 0)
+      // Push to Supabase immediately
+      pushBatch(updated as unknown as Record<string, unknown>).catch(() => {})
       return updated
     }))
   }, [])
 
-  const addBatch = useCallback(() => {
+  const addBatch = useCallback(async () => {
     const num = batches.length + 1
     const newId = `batch-${batches.length}`
     const newName = `Galpon ${num}`
@@ -923,8 +936,14 @@ export default function Home() {
       layingRate: config.baseLayingRate, isLaying: false, cycleMonth: 0, phase: 'pre_inicio',
     }
     setBatches(prev => [...prev, newBatch])
-    // Push to Supabase
-    pushBatch(newBatch as unknown as Record<string, unknown>)
+    // Push to Supabase and show feedback
+    const ok = await pushBatch(newBatch as unknown as Record<string, unknown>)
+    if (!ok) {
+      // If push failed, revert local state so it doesn't look like it was saved
+      setBatches(prev => prev.filter(b => b.id !== newId))
+      return
+    }
+    toast.success(`Lote "${newName}" guardado`)
     const today = new Date().toISOString().split('T')[0]
     setTimeout(() => {
       generateRemindersForNewBatch(FARM_ID, newId, newName, config.hensPerBatch, today)

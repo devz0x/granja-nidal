@@ -43,9 +43,7 @@ export async function PUT(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient()
 
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
-
+  // verifyFarmAccess already calls verifyAuth internally, so no need for double check
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
