@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,8 +9,8 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  ArrowLeft, Egg, Wheat, DollarSign, Info, Trash2,
-  BarChart3, ClipboardCheck, Heart, Clock,
+  ArrowLeft, DollarSign, Info, Trash2,
+  ClipboardCheck, Settings, Bell,
 } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -20,27 +20,25 @@ import type {
   PhaseKey, FarmConfig, BatchConfig, CalculationsResult,
 } from '@/lib/farm-data'
 import {
-  DEFAULT_CONFIG, DEFAULT_FEED, PHASE_COLORS, PHASE_KEYS,
+  PHASE_COLORS, PHASE_KEYS,
   fmtRD, fmtNum, fmtPct,
 } from '@/lib/farm-data'
 import OperationsPanel from '@/components/operations-panel'
 import RemindersPanel from '@/components/reminders-panel'
-import type { DailyEntry } from '@/lib/history'
 
 // ================================================================
 // NUMBER INPUT
 // ================================================================
 function NumberInput({
-  label, value, onChange, step = 1, min, max, prefix, suffix, className = '',
-  tooltip, disabled = false,
+  label, value, onChange, step = 1, min, max, suffix, tooltip, disabled = false,
 }: {
   label: string; value: number; onChange: (v: number) => void
-  step?: number; min?: number; max?: number; prefix?: string; suffix?: string
-  className?: string; tooltip?: string; disabled?: boolean
+  step?: number; min?: number; max?: number; suffix?: string
+  tooltip?: string; disabled?: boolean
 }) {
   return (
     <TooltipProvider delayDuration={200}>
-      <div className={`space-y-1.5 ${className}`}>
+      <div className="space-y-1.5">
         <div className="flex items-center gap-1">
           <Label className="text-xs text-stone-600">{label}</Label>
           {tooltip && (
@@ -53,10 +51,9 @@ function NumberInput({
           )}
         </div>
         <div className="relative">
-          {prefix && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-400">{prefix}</span>}
           <Input type="number" step={step} min={min} max={max} value={value}
             onChange={e => onChange(parseFloat(e.target.value) || 0)} disabled={disabled}
-            className={`text-sm h-9 ${prefix ? 'pl-8' : ''} ${suffix ? 'pr-10' : ''}`} />
+            className={`text-sm h-9 ${suffix ? 'pr-10' : ''}`} />
           {suffix && <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-400">{suffix}</span>}
         </div>
       </div>
@@ -65,18 +62,15 @@ function NumberInput({
 }
 
 // ================================================================
-// LOT DETAIL SUB-TAB TYPES
+// TABS (4 tabs minimalist)
 // ================================================================
-type LotSubTab = 'general' | 'produccion' | 'feed' | 'salud' | 'finanzas' | 'alertas' | 'historial'
+type LotSubTab = 'datos' | 'operaciones' | 'finanzas' | 'recordatorios'
 
 const SUB_TABS: { key: LotSubTab; label: string; icon: React.ReactNode }[] = [
-  { key: 'general', label: 'General', icon: <ClipboardCheck className="w-3.5 h-3.5" /> },
-  { key: 'produccion', label: 'Produccion', icon: <Egg className="w-3.5 h-3.5" /> },
-  { key: 'feed', label: 'Feed', icon: <Wheat className="w-3.5 h-3.5" /> },
-  { key: 'salud', label: 'Salud', icon: <Heart className="w-3.5 h-3.5" /> },
+  { key: 'datos', label: 'Datos', icon: <Settings className="w-3.5 h-3.5" /> },
+  { key: 'operaciones', label: 'Operaciones', icon: <ClipboardCheck className="w-3.5 h-3.5" /> },
   { key: 'finanzas', label: 'Finanzas', icon: <DollarSign className="w-3.5 h-3.5" /> },
-  { key: 'alertas', label: 'Alertas', icon: <BarChart3 className="w-3.5 h-3.5" /> },
-  { key: 'historial', label: 'Historial', icon: <Clock className="w-3.5 h-3.5" /> },
+  { key: 'recordatorios', label: 'Recordatorios', icon: <Bell className="w-3.5 h-3.5" /> },
 ]
 
 // ================================================================
@@ -95,8 +89,8 @@ interface LotDetailProps {
 // ================================================================
 // LOT DETAIL COMPONENT
 // ================================================================
-export default function LotDetail({ batch, totalBatches, calc, config, onBack, updateBatch, removeBatch }: LotDetailProps) {
-  const [activeSubTab, setActiveSubTab] = useState<LotSubTab>('general')
+export default function LotDetail({ batch, calc, config, onBack, updateBatch, removeBatch }: LotDetailProps) {
+  const [activeSubTab, setActiveSubTab] = useState<LotSubTab>('datos')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const detail = calc.batchDetails.find(b => b.id === batch.id)
   const feed = config.feedPhases[batch.phase]
@@ -159,7 +153,7 @@ export default function LotDetail({ batch, totalBatches, calc, config, onBack, u
                 <AlertDialogHeader>
                   <AlertDialogTitle>Eliminar {batch.name}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Se eliminaran todos los datos de este lote, incluyendo su historial de produccion, alertas y recordatorios. Esta accion no se puede deshacer.
+                    Se eliminaran todos los datos de este lote. Esta accion no se puede deshacer.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -175,9 +169,9 @@ export default function LotDetail({ batch, totalBatches, calc, config, onBack, u
             </AlertDialog>
           </div>
 
-          {/* Quick KPI row */}
+          {/* Quick KPI strip — single source of truth */}
           {detail && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               <div className="bg-stone-50 rounded-lg p-2 text-center">
                 <p className="text-[9px] text-stone-400">Aves</p>
                 <p className="text-sm font-bold">{fmtNum(detail.hens)}</p>
@@ -209,7 +203,7 @@ export default function LotDetail({ batch, totalBatches, calc, config, onBack, u
         </CardContent>
       </Card>
 
-      {/* Sub-tabs (compact pill-style) */}
+      {/* Sub-tabs */}
       <div className="flex items-center gap-1 overflow-x-auto pb-1">
         {SUB_TABS.map(tab => (
           <button
@@ -228,357 +222,149 @@ export default function LotDetail({ batch, totalBatches, calc, config, onBack, u
       </div>
 
       {/* Tab Content */}
-      {activeSubTab === 'general' && (
-        <GeneralTab batch={batch} config={config} updateBatch={updateBatch} detail={detail} calc={calc} />
+      {activeSubTab === 'datos' && (
+        <DatosTab batch={batch} config={config} updateBatch={updateBatch} detail={detail} />
       )}
-      {activeSubTab === 'produccion' && (
-        <ProduccionTab batch={batch} config={config} detail={detail} />
-      )}
-      {activeSubTab === 'feed' && (
-        <FeedTab batch={batch} config={config} detail={detail} calc={calc} />
-      )}
-      {activeSubTab === 'salud' && (
-        <SaludTab batch={batch} config={config} />
+      {activeSubTab === 'operaciones' && (
+        <OperationsPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
       )}
       {activeSubTab === 'finanzas' && (
         <FinanzasTab batch={batch} config={config} detail={detail} calc={calc} />
       )}
-      {activeSubTab === 'alertas' && (
-        <AlertasTab batch={batch} config={config} />
-      )}
-      {activeSubTab === 'historial' && (
-        <HistorialTab batch={batch} />
+      {activeSubTab === 'recordatorios' && (
+        <RemindersPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
       )}
     </div>
   )
 }
 
 // ================================================================
-// SUB-TAB COMPONENTS
+// DATOS TAB — Editable config + phase + investment
 // ================================================================
-function GeneralTab({ batch, config, updateBatch, detail, calc }: {
-  batch: BatchConfig; config: FarmConfig; updateBatch: (id: string, field: keyof BatchConfig, value: boolean | number | string) => void;
-  detail: CalculationsResult['batchDetails'][0] | undefined; calc: CalculationsResult
+function DatosTab({ batch, config, updateBatch, detail }: {
+  batch: BatchConfig; config: FarmConfig
+  updateBatch: (id: string, field: keyof BatchConfig, value: boolean | number | string) => void
+  detail: CalculationsResult['batchDetails'][0] | undefined
 }) {
   return (
     <Card>
-      <CardContent className="p-4 space-y-4">
-        <h3 className="text-sm font-semibold text-stone-700 mb-3">Datos del Lote</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <CardContent className="p-4 space-y-5">
+        <h3 className="text-sm font-semibold text-stone-700">Configuracion del Lote</h3>
+
+        {/* Inputs */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <NumberInput label="Cantidad de Aves" value={batch.hens} onChange={v => updateBatch(batch.id, 'hens', v)} step={50} min={0} tooltip="Cantidad de aves activas" />
-          <NumberInput label="Mes del Ciclo" value={batch.cycleMonth} onChange={v => updateBatch(batch.id, 'cycleMonth', v)} step={0.5} min={0} max={30} tooltip="Mes actual desde inicio. Fase se calcula automaticamente." />
+          <NumberInput label="Mes del Ciclo" value={batch.cycleMonth} onChange={v => updateBatch(batch.id, 'cycleMonth', v)} step={0.5} min={0} max={30} tooltip="Mes actual. Fase se calcula automaticamente." />
           <NumberInput label="% Postura" value={batch.layingRate} onChange={v => updateBatch(batch.id, 'layingRate', v)} step={1} min={0} max={100} suffix="%" disabled={!batch.isLaying} tooltip="% de postura actual" />
         </div>
 
+        {/* Phase selector */}
         <div>
-          <Label className="text-xs text-stone-600 mb-2">Fase Actual</Label>
-          <div className="h-9 rounded-md border bg-stone-50 px-3 flex items-center text-sm text-stone-600 mb-2">{config.feedPhases[batch.phase].label} ({config.feedPhases[batch.phase].weeks})</div>
-          <div className="flex flex-wrap gap-1">
+          <Label className="text-xs text-stone-600 mb-2 block">Fase Actual</Label>
+          <div className="flex flex-wrap gap-1.5">
             {PHASE_KEYS.map(phase => (
               <Button key={phase} variant={batch.phase === phase ? 'default' : 'outline'} size="sm"
-                className="text-[10px] h-7 px-2"
+                className="text-[10px] h-7 px-2.5"
                 onClick={() => updateBatch(batch.id, 'phase', phase)}>
                 {config.feedPhases[phase].label}
               </Button>
             ))}
           </div>
-        </div>
-
-        {/* Feed Cost Summary */}
-        {detail && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-            <div className="p-3 bg-red-50 rounded-lg">
-              <p className="text-[10px] text-red-600 mb-1">Costo Feed Mensual</p>
-              <p className="text-lg font-bold text-red-700">{fmtRD(detail.monthlyFeedCost)}</p>
-              <p className="text-[10px] text-stone-500">{fmtNum(detail.monthlyFeedKg)} kg/mes | {config.feedPhases[batch.phase].consumption}g/ave/dia</p>
-            </div>
-            {detail.isLaying && (
-              <div className="p-3 bg-green-50 rounded-lg">
-                <p className="text-[10px] text-green-600 mb-1">Ingreso Huevos Mensual</p>
-                <p className="text-lg font-bold text-green-700">{fmtRD(detail.eggRevenue)}</p>
-                <p className="text-[10px] text-stone-500">{fmtNum(detail.eggsPerMonth)} huevos/mes a {fmtRD(config.eggPrice)}/huevo</p>
-              </div>
-            )}
-            <div className={`p-3 rounded-lg ${detail.netBalance >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-              <p className={`text-[10px] ${detail.netBalance >= 0 ? 'text-green-600' : 'text-red-600'} mb-1`}>Balance Mensual</p>
-              <p className={`text-lg font-bold ${detail.netBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                {detail.netBalance >= 0 ? '+' : ''}{fmtRD(detail.netBalance)}
-              </p>
-              <p className="text-[10px] text-stone-500">
-                {detail.isLaying ? 'Ingreso huevos - Gasto feed' : 'Solo gastos (no en postura)'}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Investment */}
-        <div className="p-3 bg-violet-50 rounded-lg">
-          <p className="text-[10px] text-violet-600 mb-1">Inversion Inicial</p>
-          <p className="text-sm font-bold text-violet-800">{fmtRD(detail?.batchInvestment || 0)}</p>
-          <p className="text-[10px] text-stone-500">
-            {fmtNum(batch.hens)} aves x {fmtRD(detail?.initialInvestmentPerBird || 0)}/ave
+          <p className="text-[10px] text-stone-400 mt-1.5">
+            {config.feedPhases[batch.phase].label} — {config.feedPhases[batch.phase].weeks} — {config.feedPhases[batch.phase].consumption}g/ave/dia — {fmtRD(config.feedPhases[batch.phase].price)}/qq
           </p>
         </div>
+
+        {/* Investment — compact */}
+        {detail && (
+          <div className="p-3 bg-violet-50 rounded-lg">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-violet-600">Inversion Inicial</span>
+              <span className="text-sm font-bold text-violet-800">{fmtRD(detail.batchInvestment || 0)}</span>
+            </div>
+            <p className="text-[10px] text-stone-400 mt-0.5">
+              {fmtNum(batch.hens)} aves x {fmtRD(detail?.initialInvestmentPerBird || 0)}/ave
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
 }
 
-function ProduccionTab({ batch, config, detail }: {
-  batch: BatchConfig; config: FarmConfig
-  detail: CalculationsResult['batchDetails'][0] | undefined
-}) {
-  return (
-    <OperationsPanel
-      batches={[batch]}
-      config={config}
-      fmtRD={fmtRD}
-      fmtNum={fmtNum}
-      batchId={batch.id}
-    />
-  )
-}
-
-function FeedTab({ batch, config, detail, calc }: {
-  batch: BatchConfig; config: FarmConfig; detail: CalculationsResult['batchDetails'][0] | undefined; calc: CalculationsResult
-}) {
-  const feed = config.feedPhases[batch.phase]
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-stone-700">Alimentacion — {feed.label}</h3>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <div className="p-3 bg-amber-50 rounded-lg">
-              <p className="text-[10px] text-amber-600">Consumo</p>
-              <p className="text-lg font-bold text-amber-800">{feed.consumption}g/ave/dia</p>
-              <p className="text-[10px] text-stone-500">{fmtNum(batch.hens * feed.consumption)}g total/dia</p>
-            </div>
-            <div className="p-3 bg-red-50 rounded-lg">
-              <p className="text-[10px] text-red-600">Precio</p>
-              <p className="text-lg font-bold text-red-700">{fmtRD(feed.price)}/qq</p>
-              <p className="text-[10px] text-stone-500">{fmtNum(calc.feedCostByPhase?.find(fp => fp.phaseKey === batch.phase)?.defMonthlyCost || 0)} vs base</p>
-            </div>
-            <div className="p-3 bg-stone-50 rounded-lg">
-              <p className="text-[10px] text-stone-500">Costo Mensual</p>
-              <p className="text-lg font-bold text-stone-700">{fmtRD(detail?.monthlyFeedCost || 0)}</p>
-              <p className="text-[10px] text-stone-500">{fmtNum(detail?.monthlyFeedKg || 0)} kg/mes</p>
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-stone-600">Costo por ave/mes</span>
-            <span className="font-bold text-red-700">{detail ? fmtRD(detail.monthlyFeedCost / batch.hens) : '-'}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-stone-600">Consumo diario total</span>
-            <span className="font-medium text-stone-700">{detail ? fmtNum(Math.round(detail.monthlyFeedKg / 30)) : '-'} kg</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Feed inventory for this phase */}
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-stone-700">Inventario de Alimento — {feed.label}</h3>
-          <OperationsPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-function SaludTab({ batch, config }: {
-  batch: BatchConfig; config: FarmConfig
-}) {
-  return (
-    <OperationsPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
-  )
-}
-
+// ================================================================
+// FINANZAS TAB — Only unique data not in header KPIs
+// ================================================================
 function FinanzasTab({ batch, config, detail, calc }: {
   batch: BatchConfig; config: FarmConfig; detail: CalculationsResult['batchDetails'][0] | undefined; calc: CalculationsResult
 }) {
   if (!detail) return null
   const isLaying = batch.isLaying
-  const roi = detail.netBalance > 0 ? ((detail.eggRevenue - detail.monthlyFeedCost) / detail.batchInvestment * 100 * 12) : 0
+  const roi = detail.netBalance > 0 && detail.batchInvestment > 0
+    ? ((detail.netBalance) / detail.batchInvestment * 100 * 12)
+    : 0
 
   return (
-    <Card>
-      <CardContent className="p-4 space-y-4">
-        <h3 className="text-sm font-semibold text-stone-700">Finanzas — {batch.name}</h3>
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <h3 className="text-sm font-semibold text-stone-700">Desglose Financiero — {batch.name}</h3>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Revenue */}
-          <div className="p-3 bg-green-50 rounded-lg space-y-1.5">
-            <p className="text-[10px] text-green-600 font-medium">INGRESOS</p>
-            {isLaying ? (
-              <>
-                <div className="flex justify-between text-sm"><span>Venta Huevos/mes</span><span className="font-bold text-green-700">{fmtRD(detail.eggRevenue)}</span></div>
-                <div className="flex justify-between text-sm text-stone-500"><span>Huevos/mes</span><span>{fmtNum(detail.eggsPerMonth)}</span></div>
-                <div className="flex justify-between text-sm text-stone-500"><span>Precio/huevo</span><span>{fmtRD(config.eggPrice)}</span></div>
-              </>
-            ) : (
-              <p className="text-sm text-stone-400">No en postura</p>
-            )}
-            <div className="flex justify-between text-sm text-stone-500"><span>Venta Desecho</span><span>{fmtRD(batch.hens * config.henSalePrice)}</span></div>
-          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Revenue */}
+            <div className="p-3 bg-green-50 rounded-lg space-y-2">
+              <p className="text-[10px] text-green-600 font-medium">INGRESOS</p>
+              {isLaying ? (
+                <>
+                  <div className="flex justify-between text-sm"><span className="text-stone-600">Venta Huevos/mes</span><span className="font-bold text-green-700">{fmtRD(detail.eggRevenue)}</span></div>
+                  <div className="flex justify-between text-sm text-stone-400"><span>{fmtNum(detail.eggsPerMonth)} huevos x {fmtRD(config.eggPrice)}</span></div>
+                </>
+              ) : (
+                <p className="text-sm text-stone-400 italic">No en postura</p>
+              )}
+              <Separator className="!my-1" />
+              <div className="flex justify-between text-sm text-stone-500"><span>Venta Desecho ({fmtNum(batch.hens)} aves)</span><span>{fmtRD(batch.hens * config.henSalePrice)}</span></div>
+            </div>
 
-          {/* Expenses */}
-          <div className="p-3 bg-red-50 rounded-lg space-y-1.5">
-            <p className="text-[10px] text-red-600 font-medium">GASTOS</p>
-            <div className="flex justify-between text-sm"><span>Feed</span><span className="font-bold text-red-700">{fmtRD(detail.monthlyFeedCost)}</span></div>
-            <div className="flex justify-between text-sm text-stone-500"><span>Costo/ave/mes</span><span>{fmtRD(detail.monthlyFeedCost / batch.hens)}</span></div>
-            <div className="flex justify-between text-sm text-stone-500"><span>Feed/Gasto Total</span>
-              <span>{calc.totalExpenses > 0 ? fmtPct(detail.monthlyFeedCost / calc.totalExpenses * 100) : '-'}</span>
+            {/* Expenses */}
+            <div className="p-3 bg-red-50 rounded-lg space-y-2">
+              <p className="text-[10px] text-red-600 font-medium">GASTOS</p>
+              <div className="flex justify-between text-sm"><span className="text-stone-600">Feed/mes</span><span className="font-bold text-red-700">{fmtRD(detail.monthlyFeedCost)}</span></div>
+              <div className="flex justify-between text-sm text-stone-400"><span>{fmtNum(detail.monthlyFeedKg)} kg — {fmtRD(detail.monthlyFeedCost / batch.hens)}/ave</span></div>
+              <Separator className="!my-1" />
+              <div className="flex justify-between text-sm text-stone-500"><span>Feed / Gasto Total</span>
+                <span>{calc.totalExpenses > 0 ? fmtPct(detail.monthlyFeedCost / calc.totalExpenses * 100) : '-'}</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Balance & ROI */}
-        <div className={`p-4 rounded-lg ${detail.netBalance >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm font-bold">Balance Neto Mensual</span>
-            <span className={`text-lg font-bold ${detail.netBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-              {detail.netBalance >= 0 ? '+' : ''}{fmtRD(detail.netBalance)}
-            </span>
-          </div>
-          {isLaying && (
-            <div className="flex justify-between text-xs text-stone-500">
-              <span>ROI Anual Estimado</span>
-              <span className={`font-bold ${roi > 0 ? 'text-green-700' : 'text-red-600'}`}>{roi.toFixed(1)}%</span>
+          {/* Balance + ROI + Payback */}
+          <div className={`p-4 rounded-lg space-y-2 ${detail.netBalance >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-bold">Balance Neto Mensual</span>
+              <span className={`text-lg font-bold ${detail.netBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                {detail.netBalance >= 0 ? '+' : ''}{fmtRD(detail.netBalance)}
+              </span>
             </div>
-          )}
-          <div className="flex justify-between text-xs text-stone-500 mt-1">
-            <span>Inversion Inicial</span>
-            <span>{fmtRD(detail.batchInvestment)}</span>
+            <div className="grid grid-cols-3 gap-3 pt-1">
+              {isLaying && (
+                <div>
+                  <p className="text-[9px] text-stone-500">ROI Anual</p>
+                  <p className={`text-sm font-bold ${roi > 0 ? 'text-green-700' : 'text-red-600'}`}>{roi.toFixed(1)}%</p>
+                </div>
+              )}
+              <div>
+                <p className="text-[9px] text-stone-500">Inversion</p>
+                <p className="text-sm font-bold text-stone-700">{fmtRD(detail.batchInvestment)}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-stone-500">Payback</p>
+                <p className="text-sm font-bold text-stone-700">{detail.netBalance > 0 ? `${Math.ceil(detail.batchInvestment / detail.netBalance)} meses` : 'N/A'}</p>
+              </div>
+            </div>
           </div>
-          <div className="flex justify-between text-xs text-stone-500">
-            <span>Payback (balance)</span>
-            <span>{detail.netBalance > 0 ? `${Math.ceil(detail.batchInvestment / detail.netBalance)} meses` : 'N/A'}</span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function AlertasTab({ batch, config }: {
-  batch: BatchConfig; config: FarmConfig
-}) {
-  return (
-    <RemindersPanel batches={[batch]} config={config} fmtRD={fmtRD} fmtNum={fmtNum} batchId={batch.id} />
-  )
-}
-
-function HistorialTab({ batch }: { batch: BatchConfig }) {
-  const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
-  const [entries, setEntries] = useState<DailyEntry[]>([])
-
-  useEffect(() => {
-    if (!FARM_ID) return
-    fetch(`/api/daily-entries?farm_id=${FARM_ID}&batch_id=${batch.id}&limit=500`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data?.entries) { setEntries([]); return }
-        const mapped = (data.entries as Record<string, unknown>[]).map(e => ({
-          id: e.id as string,
-          date: (e.date || '') as string,
-          batchId: (e.batch_id || '') as string,
-          eggsCollected: (e.eggs_collected || 0) as number,
-          eggsBroken: (e.eggs_broken || 0) as number,
-          mortality: (e.mortality || 0) as number,
-          feedKg: (e.feed_kg || 0) as number,
-          waterLiters: (e.water_liters || 0) as number,
-          notes: (e.notes || '') as string,
-        }))
-        setEntries(mapped.sort((a, b) => b.date.localeCompare(a.date)))
-      })
-      .catch(() => {})
-  }, [batch.id])
-
-  // Calcular resumen
-  const totalEggs = entries.reduce((s, e) => s + e.eggsCollected, 0)
-  const avgEggs = entries.length > 0 ? Math.round(totalEggs / entries.length) : 0
-  const totalMortality = entries.reduce((s, e) => s + e.mortality, 0)
-  const totalFeed = entries.reduce((s, e) => s + e.feedKg, 0)
-  const totalBroken = entries.reduce((s, e) => s + e.eggsBroken, 0)
-
-  return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-stone-700">Historial Diario — {batch.name}</h3>
-
-        {/* Resumen */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div className="bg-stone-50 rounded-lg p-2 text-center">
-            <p className="text-[9px] text-stone-400">Registros</p>
-            <p className="text-sm font-bold">{entries.length}</p>
-          </div>
-          <div className="bg-green-50 rounded-lg p-2 text-center">
-            <p className="text-[9px] text-stone-400">Total Huevos</p>
-            <p className="text-sm font-bold text-green-700">{fmtNum(totalEggs)}</p>
-          </div>
-          <div className="bg-amber-50 rounded-lg p-2 text-center">
-            <p className="text-[9px] text-stone-400">Prom/dia</p>
-            <p className="text-sm font-bold text-amber-700">{fmtNum(avgEggs)}</p>
-          </div>
-          <div className="bg-red-50 rounded-lg p-2 text-center">
-            <p className="text-[9px] text-stone-400">Mortalidad</p>
-            <p className="text-sm font-bold text-red-600">{totalMortality}</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-stone-50 rounded-lg p-2 text-center">
-            <p className="text-[9px] text-stone-400">Feed Total</p>
-            <p className="text-sm font-bold">{totalFeed.toFixed(1)} kg</p>
-          </div>
-          <div className="bg-red-50 rounded-lg p-2 text-center">
-            <p className="text-[9px] text-stone-400">Huevos Rotos</p>
-            <p className="text-sm font-bold text-red-400">{totalBroken}</p>
-          </div>
-        </div>
-
-        {/* Tabla */}
-        {entries.length > 0 ? (
-          <div className="max-h-[400px] overflow-y-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left text-[10px] py-1.5 text-stone-500 font-medium">Fecha</th>
-                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Huevos</th>
-                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Rotos</th>
-                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Mort.</th>
-                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Feed(kg)</th>
-                  <th className="text-right text-[10px] py-1.5 text-stone-500 font-medium">Agua(L)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map(entry => (
-                  <tr key={entry.id} className="border-b border-stone-50">
-                    <td className="py-1.5 text-[11px]">{entry.date}</td>
-                    <td className="py-1.5 text-[11px] text-right font-medium">{entry.eggsCollected}</td>
-                    <td className="py-1.5 text-[11px] text-right text-red-400">{entry.eggsBroken || '-'}</td>
-                    <td className="py-1.5 text-[11px] text-right text-red-600">{entry.mortality || '-'}</td>
-                    <td className="py-1.5 text-[11px] text-right">{entry.feedKg || '-'}</td>
-                    <td className="py-1.5 text-[11px] text-right">{entry.waterLiters || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="text-center py-8 text-stone-400">
-            <Clock className="w-10 h-10 mx-auto mb-2 opacity-20" />
-            <p className="text-xs">Sin registros diarios para este lote.</p>
-            <p className="text-[10px] mt-1">Registra produccion en la pestana Produccion.</p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
