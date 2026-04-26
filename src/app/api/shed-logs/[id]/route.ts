@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyFarmAccess, verifyAuth } from '@/lib/auth-api'
 import { validateBody, shedLogSchema } from '@/lib/validators'
 
@@ -32,7 +32,7 @@ export async function PUT(
   }
 
   const logData = validation.data!
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   const { data, error } = await supabase
     .from('shed_logs')
@@ -81,7 +81,7 @@ export async function DELETE(
   const farmAuth = await verifyFarmAccess(farmId)
   if (farmAuth.error) return farmAuth.error
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error } = await supabase
     .from('shed_logs')
     .delete()

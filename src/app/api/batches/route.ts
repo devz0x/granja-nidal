@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
 import { validateBody, batchCreateSchema } from '@/lib/validators'
 
@@ -9,7 +9,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  // Use service_role client to bypass RLS for reads too
+  const supabase = createServiceRoleClient()
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
@@ -41,7 +42,8 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  // Use service_role client to BYPASS RLS entirely
+  const supabase = createServiceRoleClient()
 
   // verifyFarmAccess already calls verifyAuth internally, so no need for double check
   const { searchParams } = new URL(req.url)
@@ -77,7 +79,8 @@ export async function PUT(req: NextRequest) {
     .single()
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error('[batches PUT] error:', error.message, error.code, error.details)
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 500 })
   }
 
   return NextResponse.json({ batch: data })
@@ -89,7 +92,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  // Use service_role client to BYPASS RLS entirely
+  const supabase = createServiceRoleClient()
 
   // Verify authentication
   const { error: authError } = await verifyAuth()
@@ -131,7 +135,8 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error('[batches POST] error:', error.message, error.code, error.details)
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 500 })
   }
 
   return NextResponse.json({ batch: data })

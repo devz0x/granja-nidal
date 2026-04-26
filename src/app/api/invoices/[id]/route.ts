@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyFarmAccess } from '@/lib/auth-api'
 
 // GET /api/invoices/[id]
@@ -21,7 +21,7 @@ export async function GET(
   const { error: authError } = await verifyFarmAccess(farmId)
   if (authError) return authError
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { data, error } = await supabase
     .from('invoices')
     .select('*')
@@ -55,7 +55,7 @@ export async function DELETE(
   const { error: authError } = await verifyFarmAccess(farmId)
   if (authError) return authError
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error } = await supabase
     .from('invoices')
     .delete()

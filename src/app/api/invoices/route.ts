@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyFarmAccess, verifyAuth } from '@/lib/auth-api'
 import { validateBody, invoiceCreateSchema } from '@/lib/validators'
 
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const { error: authError } = await verifyFarmAccess(farmId)
   if (authError) return authError
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const status = searchParams.get('status')
   const search = searchParams.get('search')
   const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 500)
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   const { error: authError } = await verifyFarmAccess(farmId)
   if (authError) return authError
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const body = await req.json()
 
   const validation = validateBody(invoiceCreateSchema, body)

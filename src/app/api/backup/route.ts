@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyFarmAccess, requireSuperadmin } from '@/lib/auth-api'
 
 // Tables to export/import
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const { error: authError } = await verifyFarmAccess(farmId)
   if (authError) return authError
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   // Fetch farm config specifically
   const { data: farmData } = await supabase
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const body = await req.json()
 
   const backupData = body.backup

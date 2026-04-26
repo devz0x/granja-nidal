@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth } from '@/lib/auth-api'
 
 // GET /api/farm - Get farm by ID or check connection
@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured', configured: false }, { status: 200 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   // Verify authentication
   const { user, error: authError } = await verifyAuth()
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   // Verify authentication
   const { user, error: authError } = await verifyAuth()

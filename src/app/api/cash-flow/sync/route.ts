@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
 import { validateBody, monthSchema } from '@/lib/validators'
 
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error: authError } = await verifyFarmAccess(req.nextUrl.searchParams.get('farm_id') || '')
   if (authError) return authError
 
@@ -265,7 +265,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error: authError } = await verifyAuth()
   if (authError) return authError
 

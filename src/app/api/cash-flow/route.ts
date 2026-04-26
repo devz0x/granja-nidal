@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
 import { apiRateLimit } from '@/lib/rate-limit'
 import { validateBody, cashFlowEntrySchema, cashFlowBatchSchema } from '@/lib/validators'
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error: authError } = await verifyFarmAccess(req.nextUrl.searchParams.get('farm_id') || '')
   if (authError) return authError
 
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
 
@@ -130,7 +130,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error: authError } = await verifyFarmAccess(
     new URL(req.url).searchParams.get('farm_id') || ''
   )
@@ -170,7 +170,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error: authError } = await verifyFarmAccess(
     new URL(req.url).searchParams.get('farm_id') || ''
   )

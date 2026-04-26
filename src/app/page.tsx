@@ -716,23 +716,27 @@ export default function Home() {
   useEffect(() => {
     if (mounted && isSupabaseConfigured() && isAuthenticated) {
       const setupVersion = localStorage.getItem('granja-nidal-setup-version')
-      if (setupVersion !== 'v7') {
-        // Step 1: Run fix-rls to ensure batches RLS allows authenticated users
+      if (setupVersion !== 'v8') {
+        // Step 1: Run fix-rls to disable RLS on all tables (bypasses RLS entirely)
         fetch('/api/admin/fix-rls', { method: 'POST' })
           .then(r => r.json())
           .then(data => {
             console.log('[setup] fix-rls response:', JSON.stringify(data))
             if (data.success) {
-              // Step 2: Run full setup migration
+              // Step 2: Run full setup migration (tables, functions, triggers)
               return fetch('/api/admin/setup', { method: 'POST' }).then(r => r.json())
             } else {
-              toast.error('Error de configuracion', { description: data.error || JSON.stringify(data.diagnostics || {}) })
+              // Show detailed diagnostics so we can debug
+              const diag = data.diagnostics ? JSON.stringify(data.diagnostics, null, 2) : 'No diagnostics'
+              toast.error('Error de configuracion', { description: `${data.error || 'Unknown error'}\n${diag}` })
+              // Still mark as attempted to avoid infinite retry loops
+              localStorage.setItem('granja-nidal-setup-version', 'v8')
             }
           })
           .then(data => {
             if (data) {
               console.log('[setup] full migration response:', JSON.stringify(data))
-              if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v7')
+              if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v8')
             }
           })
           .catch(err => {

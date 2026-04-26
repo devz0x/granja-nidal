@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
 import { validateBody, cashFlowUpdateSchema } from '@/lib/validators'
 
@@ -12,7 +12,7 @@ export async function PUT(
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error: authError } = await verifyAuth()
   if (authError) return authError
 
@@ -72,7 +72,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const { error: authError } = await verifyAuth()
   if (authError) return authError
 

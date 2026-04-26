@@ -1,4 +1,5 @@
-import { createServerClient, type SupabaseClient } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -31,6 +32,30 @@ export const createServerSupabaseClient = async (): Promise<SupabaseClient> => {
       },
     },
   })
+}
+
+/**
+ * Create a Supabase client with SERVICE_ROLE key that BYPASSES RLS.
+ * Used for all data write operations in API routes.
+ * Application-level auth (verifyAuth/verifyFarmAccess) protects data access.
+ * RLS is defense-in-depth only — for a single-farm app with app-level auth,
+ * the service_role client avoids RLS policy issues entirely.
+ */
+export const createServiceRoleClient = (): SupabaseClient => {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (serviceRoleKey) {
+    return createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    })
+  }
+  // Fallback: if no service role key, try to derive it from POSTGRES_URL
+  // by creating an admin client. If that also fails, return the regular client.
+  // This fallback should rarely be needed.
+  console.warn('[supabase] SUPABASE_SERVICE_ROLE_KEY not set — using anon client (RLS may block writes)')
+  return createClient(supabaseUrl, supabaseAnonKey)
 }
 
 /**

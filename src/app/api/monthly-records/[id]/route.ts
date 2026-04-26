@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth } from '@/lib/auth-api'
 
 // DELETE /api/monthly-records/[id]
@@ -11,7 +11,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   const { error: authError } = await verifyAuth()
   if (authError) return authError

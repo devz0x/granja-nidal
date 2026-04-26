@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth } from '@/lib/auth-api'
 import { apiRateLimit } from '@/lib/rate-limit'
 
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const authResult = await verifyAuth()
   if (authResult.error) return authResult.error
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
   const authResult = await verifyAuth()
   if (authResult.error) return authResult.error
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
 
 // Helper: update feed_inventory stock based on movement
 async function updateFeedStock(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  supabase: ReturnType<typeof createServiceRoleClient>,
   farmId: string,
   movements: Array<{ phase_key: string; movement_type: string; quantity_kg: number }>
 ) {

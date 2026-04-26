@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyFarmAccess, verifyAuth } from '@/lib/auth-api'
 import { validateBody, shedLogSchema } from '@/lib/validators'
 
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const { error: authError } = await verifyFarmAccess(farmId)
   if (authError) return authError
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
   const batchId = searchParams.get('batch_id')
   const activityType = searchParams.get('activity_type')
   const dateFrom = searchParams.get('date_from')
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   }
 
   const logData = validation.data!
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   const { data, error } = await supabase
     .from('shed_logs')
