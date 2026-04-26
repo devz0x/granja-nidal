@@ -20,17 +20,21 @@ function isAllowedOrigin(request: NextRequest): boolean {
   const referer = request.headers.get('referer') || ''
   const host = request.headers.get('host') || ''
 
-  // In production (Vercel), check against the deployed domain
+  // If NEXT_PUBLIC_APP_URL is set, prefer matching against it
   if (process.env.NEXT_PUBLIC_APP_URL) {
-    const appUrl = new URL(process.env.NEXT_PUBLIC_APP_URL)
-    return origin === appUrl.origin || referer.startsWith(appUrl.origin)
+    try {
+      const appUrl = new URL(process.env.NEXT_PUBLIC_APP_URL)
+      if (origin === appUrl.origin || referer.startsWith(appUrl.origin)) return true
+    } catch {
+      // Invalid NEXT_PUBLIC_APP_URL, fall through to host check
+    }
   }
 
   // For same-origin requests, allow if no origin header (e.g., direct browser navigation)
   if (!origin && referer) return true
   if (!origin && !referer) return true
 
-  // Allow if host matches origin
+  // Allow if origin host matches request host (handles same-origin fetch on Vercel)
   try {
     if (origin) {
       const originUrl = new URL(origin)
@@ -104,7 +108,7 @@ export async function middleware(req: NextRequest) {
     const method = req.method.toUpperCase()
     if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
       if (!isAllowedOrigin(req)) {
-        console.warn(`CSRF: Blocked ${method} ${pathname} from origin: ${req.headers.get('origin')}`)
+        console.warn(`CSRF: Blocked ${method} ${pathname} | origin=${req.headers.get('origin')} | referer=${req.headers.get('referer')?.substring(0, 60)} | host=${req.headers.get('host')} | APP_URL=${process.env.NEXT_PUBLIC_APP_URL || '(not set)'}`)
         return NextResponse.json(
           { error: 'Solicitud bloqueada. Origen no valido.' },
           { status: 403 }

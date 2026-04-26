@@ -124,9 +124,15 @@ async function pushBatch(batch: Record<string, unknown>): Promise<boolean> {
       }),
     })
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error('Failed to push batch:', res.status, errorText)
-      toast.error('Error al guardar lote', { description: `No se pudo guardar "${batch.name}" en Supabase. (${res.status})` })
+      let errorDetail = ''
+      try {
+        const errJson = JSON.parse(await res.text())
+        errorDetail = errJson?.error || JSON.stringify(errJson)
+      } catch {
+        errorDetail = await res.text().catch(() => 'Unknown error')
+      }
+      console.error('Failed to push batch:', res.status, errorDetail)
+      toast.error('Error al guardar lote', { description: `${res.status}: ${errorDetail}` })
       return false
     }
     return true
