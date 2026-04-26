@@ -35,6 +35,56 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ batches: data || [] })
 }
 
+// PUT /api/batches - Upsert a batch by batch_key (create or update in one call)
+export async function PUT(req: NextRequest) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+  }
+
+  const supabase = await createServerSupabaseClient()
+
+  const { error: authError } = await verifyAuth()
+  if (authError) return authError
+
+  const { searchParams } = new URL(req.url)
+  const farmId = searchParams.get('farm_id')
+  if (!farmId) {
+    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+  }
+
+  const farmAuth = await verifyFarmAccess(farmId)
+  if (farmAuth.error) return farmAuth.error
+
+  const body = await req.json()
+
+  const validation = validateBody(batchCreateSchema, body)
+  if (validation.error) {
+    return NextResponse.json({ error: validation.error.message, details: validation.error.details }, { status: 400 })
+  }
+
+  const { data, error } = await supabase
+    .from('batches')
+    .upsert({
+      farm_id: farmId,
+      batch_key: validation.data!.batch_key || `batch-${Date.now()}`,
+      name: validation.data!.name,
+      hens: validation.data!.hens,
+      laying_rate: validation.data!.laying_rate,
+      is_laying: validation.data!.is_laying,
+      cycle_month: validation.data!.cycle_month,
+      phase: validation.data!.phase,
+      sort_order: validation.data!.sort_order,
+    }, { onConflict: 'farm_id,batch_key' })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ batch: data })
+}
+
 // POST /api/batches - Create a new batch
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {

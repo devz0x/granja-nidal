@@ -387,6 +387,21 @@ WHERE ur.role = 'superadmin'
 ON CONFLICT (id) DO NOTHING;
 
 -- ================================================================
+-- Ensure batches has UNIQUE(farm_id, batch_key) for upsert support
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'batches_farm_id_batch_key_key'
+  ) THEN
+    ALTER TABLE batches ADD CONSTRAINT batches_farm_id_batch_key_key UNIQUE (farm_id, batch_key);
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM NOT LIKE '%already exists%' THEN
+    RAISE NOTICE 'batches constraint migration note: %', SQLERRM;
+  END IF;
+END $$;
+
+-- ================================================================
 -- SECURITY FIX: Fix feed_inventory UNIQUE constraint
 -- Change from UNIQUE(phase_key) to UNIQUE(farm_id, phase_key)
 -- ================================================================

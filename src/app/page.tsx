@@ -100,35 +100,42 @@ async function pushConfig(config: Record<string, unknown>) {
   }).catch(() => {})
 }
 
-// Push a single batch to Supabase (upsert — atomic, no race conditions)
+// Push a single batch to Supabase via upsert (single atomic call)
 async function pushBatch(batch: Record<string, unknown>) {
   if (!FARM_ID) return
   try {
-    const res = await fetch(`/api/batches?farm_id=${FARM_ID}`)
-    const data = await res.json()
-    const existing = data.batches?.find((b: Record<string, unknown>) => b.batch_key === batch.id)
-    const url = existing
-      ? `/api/batches/${existing.id}`
-      : `/api/batches?farm_id=${FARM_ID}`
-    const method = existing ? 'PUT' : 'POST'
-    const body = existing
-      ? { name: batch.name, hens: batch.hens, laying_rate: batch.layingRate, is_laying: batch.isLaying, cycle_month: batch.cycleMonth, phase: batch.phase }
-      : { batch_key: batch.id, name: batch.name, hens: batch.hens, laying_rate: batch.layingRate, is_laying: batch.isLaying, cycle_month: batch.cycleMonth, phase: batch.phase, sort_order: 0 }
-    const putRes = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    if (!putRes.ok) console.error('Failed to push batch:', await putRes.text())
+    const res = await fetch(`/api/batches?farm_id=${FARM_ID}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_key: batch.id,
+        name: batch.name,
+        hens: batch.hens,
+        laying_rate: batch.layingRate,
+        is_laying: batch.isLaying,
+        cycle_month: batch.cycleMonth,
+        phase: batch.phase,
+        sort_order: 0,
+      }),
+    })
+    if (!res.ok) console.error('Failed to push batch:', await res.text())
   } catch (err) {
     console.error('Failed to push batch:', err)
   }
 }
 
-// Delete a batch from Supabase
+// Delete a batch from Supabase by batch_key
 async function deleteBatchFromAPI(batchId: string) {
   if (!FARM_ID) return
-  const res = await fetch(`/api/batches?farm_id=${FARM_ID}`)
-  const data = await res.json()
-  const existing = data.batches?.find((b: Record<string, unknown>) => b.batch_key === batchId)
-  if (existing) {
-    fetch(`/api/batches/${existing.id}`, { method: 'DELETE' }).catch(() => {})
+  try {
+    const res = await fetch(`/api/batches?farm_id=${FARM_ID}`)
+    const data = await res.json()
+    const existing = data.batches?.find((b: Record<string, unknown>) => b.batch_key === batchId)
+    if (existing) {
+      await fetch(`/api/batches/${existing.id}`, { method: 'DELETE' })
+    }
+  } catch (err) {
+    console.error('Failed to delete batch:', err)
   }
 }
 
@@ -735,8 +742,8 @@ export default function Home() {
       // Load batches from Supabase
       if (data.batchesRes && (data.batchesRes as Record<string, unknown>).batches) {
         const dbBatches = (data.batchesRes as Record<string, unknown>).batches as Record<string, unknown>[]
-        if (dbBatches && dbBatches.length > 0) {
-          const mapped = dbBatches.map(b => ({
+        if (dbBatches) {
+          setBatches(dbBatches.map(b => ({
             id: b.batch_key as string || b.id as string,
             name: b.name as string,
             hens: b.hens as number,
@@ -744,8 +751,7 @@ export default function Home() {
             isLaying: b.is_laying as boolean,
             cycleMonth: b.cycle_month as number,
             phase: b.phase as BatchConfig['phase'],
-          }))
-          setBatches(mapped)
+          })))
         }
       }
       // Load records from Supabase
@@ -802,17 +808,15 @@ export default function Home() {
               .then(data => {
                 if (!data?.batches) return
                 const dbBatches = data.batches as Record<string, unknown>[]
-                if (dbBatches.length > 0) {
-                  setBatches(dbBatches.map(b => ({
-                    id: b.batch_key as string || b.id as string,
-                    name: b.name as string,
-                    hens: b.hens as number,
-                    layingRate: b.laying_rate as number,
-                    isLaying: b.is_laying as boolean,
-                    cycleMonth: b.cycle_month as number,
-                    phase: b.phase as BatchConfig['phase'],
-                  })))
-                }
+                setBatches(dbBatches.map(b => ({
+                  id: b.batch_key as string || b.id as string,
+                  name: b.name as string,
+                  hens: b.hens as number,
+                  layingRate: b.laying_rate as number,
+                  isLaying: b.is_laying as boolean,
+                  cycleMonth: b.cycle_month as number,
+                  phase: b.phase as BatchConfig['phase'],
+                })))
               })
               .catch(() => {})
           })
@@ -861,7 +865,7 @@ export default function Home() {
         if (!data) return
         if (data.batchesRes && (data.batchesRes as Record<string, unknown>).batches) {
           const dbBatches = (data.batchesRes as Record<string, unknown>).batches as Record<string, unknown>[]
-          if (dbBatches && dbBatches.length > 0) {
+          if (dbBatches) {
             setBatches(dbBatches.map(b => ({
               id: b.batch_key as string || b.id as string,
               name: b.name as string,
