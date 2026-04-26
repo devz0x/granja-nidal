@@ -30,8 +30,8 @@ export async function GET(req: NextRequest) {
 
   try {
     // Use Open-Meteo free weather API (no API key needed)
-    // Dominican Republic centroid: lat 18.7357, lon -70.1627
-    const geoRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=18.7357&longitude=-70.1627&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&timezone=America%2FSanto_Domingo&forecast_days=5', {
+    // San José de los Llanos, San Pedro de Macorís: lat 18.6167, lon -69.5000
+    const geoRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=18.6167&longitude=-69.5000&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&timezone=America%2FSanto_Domingo&forecast_days=5', {
       next: { revalidate: 1800 }
     })
 
@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
     if (weatherCode >= 95) alerts.push('Tormenta electrica: mantener aves protegidas y verificar drenaje.')
 
     const weatherData = {
-      location: 'Republica Dominicana',
+      location: 'San José de los Llanos, San Pedro de Macorís',
       current: {
         temp: currentTemp,
         feelsLike,
@@ -154,7 +154,7 @@ export async function GET(req: NextRequest) {
 
     // Return fallback weather data
     return NextResponse.json({
-      location: 'Republica Dominicana',
+      location: 'San José de los Llanos, San Pedro de Macorís',
       current: {
         temp: 28,
         feelsLike: 30,
