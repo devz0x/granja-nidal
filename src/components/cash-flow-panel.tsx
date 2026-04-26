@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -264,6 +264,92 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
   // ---- Local persistence (cache) ----
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)) }, [entries])
   useEffect(() => { localStorage.setItem(BALANCE_KEY, JSON.stringify(openingBalances)) }, [openingBalances])
+
+  // ---- Inline Editing State ----
+  const [inlineEdit, setInlineEdit] = useState<{ entryId: string; field: 'date' | 'description' | 'amount' | 'category' } | null>(null)
+  const [inlineValue, setInlineValue] = useState('')
+  const inlineInputRef = useRef<HTMLInputElement>(null)
+
+  // Focus inline input when set
+  useEffect(() => {
+    if (inlineEdit && inlineInputRef.current) {
+      inlineInputRef.current.focus()
+      inlineInputRef.current.select()
+    }
+  }, [inlineEdit])
+
+  const startInlineEdit = useCallback((entry: CashFlowEntry, field: 'date' | 'description' | 'amount' | 'category') => {
+    setInlineEdit({ entryId: entry.id, field })
+    setInlineValue(
+      field === 'amount' ? String(entry.amount) :
+      field === 'category' ? entry.category :
+      field === 'date' ? entry.date :
+      entry.description
+    )
+  }, [])
+
+  const saveInlineEdit = useCallback((entryId: string, field: 'date' | 'description' | 'amount' | 'category', value: string) => {
+    const entry = entries.find(e => e.id === entryId)
+    if (!entry) return
+
+    let updates: Partial<CashFlowEntry> = {}
+    if (field === 'date') {
+      updates.date = value
+    } else if (field === 'description') {
+      if (!value.trim()) { setInlineEdit(null); return }
+      updates.description = value.trim()
+    } else if (field === 'amount') {
+      const num = parseFloat(value)
+      if (!num || num <= 0) { setInlineEdit(null); return }
+      updates.amount = Math.round(num * 100) / 100
+    } else if (field === 'category') {
+      updates.category = value as CashFlowCategory
+    }
+
+    const updated = { ...entry, ...updates }
+
+    // Optimistic update
+    setEntries(prev => prev.map(e => e.id === entryId ? updated : e))
+    setInlineEdit(null)
+
+    // Push to Supabase
+    if (FARM_ID) {
+      setSyncing(true)
+      fetch(`/api/cash-flow/${encodeURIComponent(entryId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+        .then(() => {})
+        .catch(() => {})
+        .finally(() => setSyncing(false))
+    }
+  }, [entries])
+
+  const cancelInlineEdit = useCallback(() => {
+    setInlineEdit(null)
+    setInlineValue('')
+  }, [])
+
+  // Keyboard handler for inline editing
+  const handleInlineKeyDown = useCallback((e: React.KeyboardEvent, entryId: string, field: 'date' | 'description' | 'amount' | 'category') => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      saveInlineEdit(entryId, field, inlineValue)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelInlineEdit()
+    } else if (e.key === 'Tab') {
+      e.preventDefault()
+      saveInlineEdit(entryId, field, inlineValue)
+      // Move to next field in same row
+      const fields: Array<'date' | 'description' | 'amount' | 'category'> = ['date', 'category', 'description', 'amount']
+      const currentIdx = fields.indexOf(field)
+      if (currentIdx < fields.length - 1) {
+        startInlineEdit({ id: entryId } as CashFlowEntry, fields[currentIdx + 1])
+      }
+    }
+  }, [inlineValue, saveInlineEdit, cancelInlineEdit, startInlineEdit])
 
   // ---- Handlers ----
   const resetForm = useCallback(() => {
@@ -1093,26 +1179,118 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
                 </TableHeader>
                 <TableBody>
                   {filteredEntries.map(entry => (
-                    <TableRow key={entry.id} className="hover:bg-stone-50 cursor-pointer group">
-                      <TableCell className="text-[11px]">{entry.date}</TableCell>
+                    <TableRow key={entry.id} className="hover:bg-stone-50 group">
+                      {/* Date cell — inline editable */}
+                      <TableCell className="text-[11px] p-0.5">
+                        {inlineEdit?.entryId === entry.id && inlineEdit?.field === 'date' ? (
+                          <input
+                            ref={inlineInputRef}
+                            type="date"
+                            value={inlineValue}
+                            onChange={e => setInlineValue(e.target.value)}
+                            onBlur={() => saveInlineEdit(entry.id, 'date', inlineValue)}
+                            onKeyDown={e => handleInlineKeyDown(e, entry.id, 'date')}
+                            className="w-full h-7 text-[11px] px-1 border border-blue-300 rounded bg-blue-50 outline-none"
+                          />
+                        ) : (
+                          <div
+                            className="flex items-center gap-1 px-1 py-0.5 rounded cursor-pointer hover:bg-stone-100 group-hover:ring-1 group-hover:ring-blue-200 transition-all min-w-[80px]"
+                            onDoubleClick={() => startInlineEdit(entry, 'date')}
+                          >
+                            <span className="flex-1">{entry.date}</span>
+                            <Pencil className="w-2.5 h-2.5 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        )}
+                      </TableCell>
+                      {/* Type badge */}
                       <TableCell className="text-[11px]">
                         <Badge variant="outline" className={`text-[9px] ${entry.type === 'inflow' ? 'border-green-300 text-green-700 bg-green-50' : 'border-red-300 text-red-700 bg-red-50'}`}>
                           {entry.type === 'inflow' ? 'Entrada' : 'Salida'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-[11px]">
-                        <span className="mr-1">{CATEGORIES[entry.category]?.icon || ''}</span>
-                        {CATEGORIES[entry.category]?.label || entry.category}
+                      {/* Category cell — inline editable with select */}
+                      <TableCell className="text-[11px] p-0.5">
+                        {inlineEdit?.entryId === entry.id && inlineEdit?.field === 'category' ? (
+                          <select
+                            ref={inlineInputRef}
+                            value={inlineValue}
+                            onChange={e => { setInlineValue(e.target.value); saveInlineEdit(entry.id, 'category', e.target.value) }}
+                            onBlur={() => cancelInlineEdit()}
+                            onKeyDown={e => handleInlineKeyDown(e, entry.id, 'category')}
+                            className="w-full h-7 text-[11px] px-1 border border-blue-300 rounded bg-blue-50 outline-none"
+                          >
+                            {Object.entries(CATEGORIES).map(([key, info]) => (
+                              <option key={key} value={key}>{info.icon} {info.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div
+                            className="flex items-center gap-1 px-1 py-0.5 rounded cursor-pointer hover:bg-stone-100 group-hover:ring-1 group-hover:ring-blue-200 transition-all"
+                            onDoubleClick={() => startInlineEdit(entry, 'category')}
+                          >
+                            <span className="mr-0.5">{CATEGORIES[entry.category]?.icon || ''}</span>
+                            <span className="flex-1 truncate">{CATEGORIES[entry.category]?.label || entry.category}</span>
+                            <Pencil className="w-2.5 h-2.5 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                          </div>
+                        )}
                       </TableCell>
-                      <TableCell className="text-[11px] max-w-[200px] truncate" onClick={() => openEditDialog(entry)}>{entry.description}</TableCell>
-                      <TableCell className={`text-[11px] text-right font-medium ${entry.type === 'inflow' ? 'text-green-700' : 'text-red-600'}`} onClick={() => openEditDialog(entry)}>
-                        {entry.type === 'inflow' ? '+' : '-'}{fmtRD(entry.amount)}
+                      {/* Description cell — inline editable */}
+                      <TableCell className="text-[11px] p-0.5 max-w-[200px]">
+                        {inlineEdit?.entryId === entry.id && inlineEdit?.field === 'description' ? (
+                          <input
+                            ref={inlineInputRef}
+                            type="text"
+                            value={inlineValue}
+                            onChange={e => setInlineValue(e.target.value)}
+                            onBlur={() => saveInlineEdit(entry.id, 'description', inlineValue)}
+                            onKeyDown={e => handleInlineKeyDown(e, entry.id, 'description')}
+                            className="w-full h-7 text-[11px] px-1 border border-blue-300 rounded bg-blue-50 outline-none"
+                            placeholder="Descripcion..."
+                          />
+                        ) : (
+                          <div
+                            className="flex items-center gap-1 px-1 py-0.5 rounded cursor-pointer hover:bg-stone-100 group-hover:ring-1 group-hover:ring-blue-200 transition-all truncate"
+                            onDoubleClick={() => startInlineEdit(entry, 'description')}
+                            title="Doble clic para editar"
+                          >
+                            <span className="flex-1 truncate">{entry.description}</span>
+                            <Pencil className="w-2.5 h-2.5 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                          </div>
+                        )}
                       </TableCell>
-                      <TableCell className="text-[11px] text-center text-stone-400" onClick={() => openEditDialog(entry)}>{entry.reference || '-'}</TableCell>
+                      {/* Amount cell — inline editable */}
+                      <TableCell className={`text-[11px] p-0.5 ${entry.type === 'inflow' ? 'text-green-700' : 'text-red-600'}`}>
+                        {inlineEdit?.entryId === entry.id && inlineEdit?.field === 'amount' ? (
+                          <input
+                            ref={inlineInputRef}
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={inlineValue}
+                            onChange={e => setInlineValue(e.target.value)}
+                            onBlur={() => saveInlineEdit(entry.id, 'amount', inlineValue)}
+                            onKeyDown={e => handleInlineKeyDown(e, entry.id, 'amount')}
+                            className="w-full h-7 text-[11px] px-1 border border-blue-300 rounded bg-blue-50 outline-none text-right font-medium"
+                          />
+                        ) : (
+                          <div
+                            className="flex items-center justify-end gap-1 px-1 py-0.5 rounded cursor-pointer hover:bg-stone-100 group-hover:ring-1 group-hover:ring-blue-200 transition-all font-medium"
+                            onDoubleClick={() => startInlineEdit(entry, 'amount')}
+                            title="Doble clic para editar"
+                          >
+                            <span>{entry.type === 'inflow' ? '+' : '-'}{fmtRD(entry.amount)}</span>
+                            <Pencil className="w-2.5 h-2.5 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                          </div>
+                        )}
+                      </TableCell>
+                      {/* Reference cell */}
+                      <TableCell className="text-[11px] text-center text-stone-400">{entry.reference || '-'}</TableCell>
+                      {/* Actions */}
                       <TableCell className="text-right print:hidden">
                         <div className="flex items-center justify-end gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
                           <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-blue-600 hover:bg-blue-50"
-                            onClick={(e) => { e.stopPropagation(); openEditDialog(entry) }}>
+                            onClick={(e) => { e.stopPropagation(); openEditDialog(entry) }}
+                            title="Editar completo">
                             <Pencil className="w-3 h-3" />
                           </Button>
                           <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500 hover:bg-red-50"

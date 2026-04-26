@@ -97,6 +97,36 @@ export const structuralExpenseSchema = z.object({
 // ---- Month validation (YYYY-MM) ----
 export const monthSchema = z.string().regex(/^\d{4}-\d{2}$/, 'Formato de mes invalido (YYYY-MM)')
 
+// ---- Invoices ----
+export const invoiceItemSchema = z.object({
+  description: z.string().min(1, 'La descripcion es requerida'),
+  quantity: z.number().min(0.01, 'La cantidad debe ser mayor a 0'),
+  unit_price: z.number().min(0, 'El precio unitario no puede ser negativo'),
+  amount: z.number().min(0).optional(),
+})
+
+export const invoiceCreateSchema = z.object({
+  client_name: z.string().min(1, 'El nombre del cliente es requerido').max(300),
+  client_rnc: z.string().max(20).default(''),
+  client_address: z.string().max(500).default(''),
+  client_phone: z.string().max(20).default(''),
+  items: z.array(invoiceItemSchema).min(1, 'Debe haber al menos un item').max(50),
+  notes: z.string().max(2000).default(''),
+  status: z.enum(['borrador', 'enviada', 'pagada', 'anulada']).default('borrador'),
+})
+
+// ---- Shed Logs ----
+export const shedLogSchema = z.object({
+  batch_id: z.string().uuid().optional().nullable(),
+  activity_type: z.enum(['limpieza', 'desinfeccion', 'mantenimiento', 'reparacion', 'inspeccion', 'otros']),
+  description: z.string().min(1, 'La descripcion es requerida').max(1000),
+  cost: z.number().min(0).default(0),
+  performed_by: z.string().max(200).default(''),
+  performed_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha invalido (YYYY-MM-DD)'),
+  notes: z.string().max(2000).default(''),
+  photos: z.array(z.string()).max(10).default([]),
+})
+
 // ---- Farm ID validation ----
 export const farmIdSchema = z.string().uuid('farm_id debe ser un UUID valido')
 

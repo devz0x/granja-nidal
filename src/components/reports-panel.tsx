@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,7 +11,16 @@ import {
   TrendingDown, ArrowRight, Calendar, Calculator as CalcIcon, AlertTriangle, PieChart, Percent,
   Clock, ThermometerSun, Droplets, Wind, Zap, Eye, Beaker, Syringe, Pill, Stethoscope,
   HeartPulse, Shield, Scale, HandCoins, PiggyBank, Receipt, FileSpreadsheet, CircleDollarSign,
+  BarChart3, Loader2,
 } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  LineChart, Line, PieChart as RPieChart, Pie, Cell,
+} from 'recharts'
+import {
+  ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent,
+} from '@/components/ui/chart'
+import type { ChartConfig } from '@/components/ui/chart'
 
 // ================================================================
 // TYPES FOR REPORT DATA (KEEP EXACTLY AS IS)
@@ -160,6 +169,284 @@ function SmallInput({ label, value, onChange, suffix, className = '' }: { label:
         {suffix && <span className="text-[10px] text-stone-400 whitespace-nowrap">{suffix}</span>}
       </div>
     </label>
+  )
+}
+
+// ================================================================
+// DASHBOARD WITH CHARTS
+// ================================================================
+const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
+
+const revenueExpenseConfig: ChartConfig = {
+  ingresos: { label: 'Ingresos', color: '#16a34a' },
+  gastos: { label: 'Gastos', color: '#dc2626' },
+}
+
+const eggConfig: ChartConfig = {
+  huevos: { label: 'Huevos', color: '#ea580c' },
+}
+
+const feedCostConfig: ChartConfig = {
+  alimento: { label: 'Costo Alimento', color: '#ca8a04' },
+}
+
+const PIE_COLORS = ['#16a34a', '#dc2626', '#2563eb', '#9333ea', '#ea580c', '#0891b2', '#4f46e5', '#be185d', '#ca8a04', '#059669']
+
+// Category label mapping for expense pie chart
+const CATEGORY_LABELS: Record<string, string> = {
+  venta_huevos: 'Venta de Huevos',
+  venta_aves: 'Venta de Aves',
+  venta_pollitos: 'Venta de Pollitos',
+  otros_ingresos_op: 'Otros Ingresos',
+  alimento: 'Alimento Balanceado',
+  nomina: 'Nomina / Salarios',
+  servicios_publicos: 'Servicios Publicos',
+  veterinaria: 'Insumos Veterinarios',
+  transporte: 'Transporte y Flete',
+  empaque: 'Empaque y Embalaje',
+  mantenimiento: 'Mantenimiento',
+  limpieza: 'Limpieza y Desinf.',
+  gastos_admin: 'Gastos Admin.',
+  infraestructura: 'Infraestructura',
+  equipos: 'Equipos',
+  vehiculos: 'Vehiculos',
+  otros_activos: 'Otros Activos',
+  prestamo_recibido: 'Prestamos Recibidos',
+  pago_prestamo: 'Pagos Prestamos',
+  aporte_capital: 'Aportes Capital',
+  retiro_capital: 'Retiros Capital',
+}
+
+function FinancialDashboard() {
+  const [loading, setLoading] = useState(true)
+  const [cashFlowData, setCashFlowData] = useState<{ month: string; ingresos: number; gastos: number }[]>([])
+  const [eggData, setEggData] = useState<{ date: string; huevos: number }[]>([])
+  const [expenseCategoryData, setExpenseCategoryData] = useState<{ categoria: string; monto: number }[]>([])
+  const [feedCostData, setFeedCostData] = useState<{ month: string; alimento: number }[]>([])
+
+  useEffect(() => {
+    if (!FARM_ID) { setLoading(false); return }
+
+    let cancelled = false
+
+    const fetchData = async () => {
+      try {
+        const [cfRes, dailyRes] = await Promise.all([
+          fetch(`/api/cash-flow?farm_id=${FARM_ID}`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/daily-entries?farm_id=${FARM_ID}&limit=500`).then(r => r.ok ? r.json() : null).catch(() => null),
+        ])
+        if (cancelled) return
+        const [cfData, dailyData] = [cfRes, dailyRes]
+      // ---- Revenue vs Expenses (last 6 months) ----
+      if (cfData?.entries) {
+        const entries = cfData.entries as Array<{ date: string; amount: number; type: string }>
+        const monthMap: Record<string, { ingresos: number; gastos: number }> = {}
+        for (const e of entries) {
+          const month = e.date.substring(0, 7)
+          if (!monthMap[month]) monthMap[month] = { ingresos: 0, gastos: 0 }
+          if (e.type === 'inflow') monthMap[month].ingresos += e.amount
+          else monthMap[month].gastos += e.amount
+        }
+        const months = Object.keys(monthMap).sort().slice(-6)
+        setCashFlowData(months.map(m => {
+          const [y, mo] = m.split('-')
+          const label = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('es-DO', { month: 'short', year: '2-digit' })
+          return { month: label, ingresos: Math.round(monthMap[m].ingresos), gastos: Math.round(monthMap[m].gastos) }
+        }))
+      }
+
+      // ---- Egg production (daily entries, aggregate across all batches) ----
+      if (dailyData?.entries) {
+        const entries = dailyData.entries as Array<{ date: string; batch_id: string; eggs_collected: number }>
+        // Aggregate all eggs by date across batches
+        const dateMap: Record<string, number> = {}
+        for (const e of entries) {
+          const d = e.date || ''
+          dateMap[d] = (dateMap[d] || 0) + (e.eggs_collected || 0)
+        }
+        const sortedDates = Object.keys(dateMap).sort().slice(-30)
+        setEggData(sortedDates.map(d => ({
+          date: d.substring(5),
+          huevos: dateMap[d],
+        })))
+      }
+
+      // ---- Expense distribution by category (from cash flow outflows) ----
+      if (cfData?.entries) {
+        const cfEntries = cfData.entries as Array<{ date: string; amount: number; category: string; type: string }>
+        const catMap: Record<string, number> = {}
+        for (const e of cfEntries) {
+          if (e.type === 'outflow' && e.category) {
+            catMap[e.category] = (catMap[e.category] || 0) + e.amount
+          }
+        }
+        setExpenseCategoryData(
+          Object.entries(catMap)
+            .map(([cat, monto]) => ({
+              categoria: CATEGORY_LABELS[cat] || cat,
+              monto: Math.round(monto),
+            }))
+            .sort((a, b) => b.monto - a.monto)
+        )
+
+        // Feed cost trend (monthly from cash flow entries with category 'alimento')
+        const feedMonthMap: Record<string, number> = {}
+        for (const e of cfEntries) {
+          if (e.category === 'alimento' && e.type === 'outflow') {
+            const month = e.date.substring(0, 7)
+            feedMonthMap[month] = (feedMonthMap[month] || 0) + e.amount
+          }
+        }
+        const feedMonths = Object.keys(feedMonthMap).sort().slice(-6)
+        setFeedCostData(feedMonths.map(m => {
+          const [y, mo] = m.split('-')
+          const label = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('es-DO', { month: 'short', year: '2-digit' })
+          return { month: label, alimento: Math.round(feedMonthMap[m]) }
+        }))
+      }
+
+      setLoading(false)
+    } catch {
+      // Silently fail
+    }
+    }
+    fetchData()
+
+    return () => { cancelled = true }
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="space-y-6 py-10">
+        <div className="flex items-center justify-center gap-2 text-stone-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Cargando graficos...</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Revenue vs Expenses Bar Chart */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-green-600" />
+            Ingresos vs Gastos (ultimos 6 meses)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {cashFlowData.length > 0 ? (
+            <ChartContainer config={revenueExpenseConfig} className="h-[280px] w-full">
+              <BarChart data={cashFlowData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <ChartLegend content={<ChartLegendContent />} />
+                <Bar dataKey="ingresos" fill="var(--color-ingresos)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="gastos" fill="var(--color-gastos)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ChartContainer>
+          ) : (
+            <p className="text-xs text-stone-400 text-center py-10">Sin datos de flujo de caja para graficar.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Two column charts: Egg production + Feed cost */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Egg Production Line Chart */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-orange-600" />
+              Produccion de Huevos (ultimos 30 dias)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {eggData.length > 0 ? (
+              <ChartContainer config={eggConfig} className="h-[240px] w-full">
+                <LineChart data={eggData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line type="monotone" dataKey="huevos" stroke="#2563eb" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ChartContainer>
+            ) : (
+              <p className="text-xs text-stone-400 text-center py-10">Sin datos de produccion diaria.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Feed Cost Line Chart */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-amber-600" />
+              Costo de Alimento (mensual)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {feedCostData.length > 0 ? (
+              <ChartContainer config={feedCostConfig} className="h-[240px] w-full">
+                <LineChart data={feedCostData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line type="monotone" dataKey="alimento" stroke="var(--color-alimento)" strokeWidth={2} dot={{ r: 4 }} />
+                </LineChart>
+              </ChartContainer>
+            ) : (
+              <p className="text-xs text-stone-400 text-center py-10">Sin datos de gasto en alimento.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Expense Distribution Pie Chart */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <PieChart className="w-4 h-4 text-red-600" />
+            Distribucion de Gastos por Categoria
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {expenseCategoryData.length > 0 ? (
+            <div className="flex items-center justify-center">
+              <ResponsiveContainer width="100%" height={320}>
+                <RPieChart>
+                  <Pie
+                    data={expenseCategoryData}
+                    dataKey="monto"
+                    nameKey="categoria"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={110}
+                    innerRadius={40}
+                    label={({ categoria, percent }) => `${categoria} ${(percent * 100).toFixed(0)}%`}
+                    labelLine={{ strokeWidth: 1 }}
+                  >
+                    {expenseCategoryData.map((_, idx) => (
+                      <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => [fmtRD(value), 'Monto']} />
+                  <Legend />
+                </RPieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="text-xs text-stone-400 text-center py-10">Sin datos de gastos por categoria.</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
@@ -1790,9 +2077,11 @@ function ReportBanco({ c, config, batches, calculations }: { c: ReportCalculatio
 // MAIN REPORTS PANEL EXPORT
 // ================================================================
 export default function ReportsPanel({ batches, config, calculations, structuralExpenses, farmName }: ReportsPanelProps) {
-  const [activeReport, setActiveReport] = useState('contable')
+  const [activeReport, setActiveReport] = useState('dashboard')
+  const [showDashboard, setShowDashboard] = useState(true)
 
   const reports = [
+    { key: 'dashboard', label: 'Financiero', icon: <BarChart3 className="w-4 h-4" />, color: 'text-green-600' },
     { key: 'contable', label: 'Contable', icon: <DollarSign className="w-4 h-4" />, color: 'text-green-600' },
     { key: 'ingeniero', label: 'Ingeniero', icon: <Building2 className="w-4 h-4" />, color: 'text-amber-600' },
     { key: 'veterinario', label: 'Veterinario', icon: <Heart className="w-4 h-4" />, color: 'text-sky-600' },
@@ -1803,7 +2092,7 @@ export default function ReportsPanel({ batches, config, calculations, structural
   return (
     <div className="space-y-4">
       {/* Report selector */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 print:hidden">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 print:hidden">
         {reports.map(r => (
           <Button key={r.key}
             variant={activeReport === r.key ? 'default' : 'outline'}
@@ -1819,6 +2108,26 @@ export default function ReportsPanel({ batches, config, calculations, structural
       {/* Report content */}
       <Card className="print:shadow-none print:border-0 print:p-0">
         <CardContent className="p-4 sm:p-6 print:p-4">
+          {activeReport === 'dashboard' && (
+            <>
+              <div className="flex items-center justify-between mb-4 print:hidden">
+                <h3 className="text-sm font-bold text-stone-800 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-green-600" />
+                  Dashboard Financiero
+                </h3>
+                <Button
+                  variant={showDashboard ? 'default' : 'outline'}
+                  size="sm"
+                  className={`text-xs ${showDashboard ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
+                  onClick={() => setShowDashboard(!showDashboard)}
+                >
+                  {showDashboard ? 'Ocultar Graficos' : 'Mostrar Graficos'}
+                </Button>
+              </div>
+              {showDashboard && <FinancialDashboard />}
+            </>
+          )}
+
           {activeReport === 'contable' && (
             <>
               <div className="flex items-center justify-between print:hidden mb-4">

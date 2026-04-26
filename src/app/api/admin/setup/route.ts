@@ -420,4 +420,92 @@ EXCEPTION WHEN OTHERS THEN
     RAISE NOTICE 'feed_inventory constraint migration note: %', SQLERRM;
   END IF;
 END $$;
+
+-- ================================================================
+-- INVENTORY MOVEMENTS TABLE
+-- ================================================================
+CREATE TABLE IF NOT EXISTS inventory_movements (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  farm_id UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+  phase_key TEXT NOT NULL DEFAULT 'postura',
+  movement_type TEXT NOT NULL DEFAULT 'entrada' CHECK (movement_type IN ('entrada', 'salida', 'ajuste')),
+  quantity_kg NUMERIC(10,2) NOT NULL DEFAULT 0,
+  unit_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+  supplier TEXT DEFAULT '',
+  reference TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_farm_id ON inventory_movements(farm_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_phase_key ON inventory_movements(phase_key);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_movement_type ON inventory_movements(movement_type);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_created_at ON inventory_movements(created_at);
+
+ALTER TABLE inventory_movements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Farm owner or superadmin access" ON inventory_movements;
+CREATE POLICY "Farm owner or superadmin access" ON inventory_movements FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid())) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()));
+
+DROP TRIGGER IF EXISTS audit_inventory_movements_trigger ON inventory_movements;
+CREATE TRIGGER audit_inventory_movements_trigger AFTER INSERT OR UPDATE OR DELETE ON inventory_movements FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
+
+-- ================================================================
+-- INVOICES TABLE
+-- ================================================================
+CREATE TABLE IF NOT EXISTS invoices (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  farm_id UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+  number TEXT NOT NULL,
+  client_name TEXT NOT NULL DEFAULT '',
+  client_rnc TEXT DEFAULT '',
+  client_address TEXT DEFAULT '',
+  client_phone TEXT DEFAULT '',
+  items JSONB NOT NULL DEFAULT '[]',
+  subtotal NUMERIC(14,2) DEFAULT 0,
+  itbis NUMERIC(14,2) DEFAULT 0,
+  total NUMERIC(14,2) DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'borrador' CHECK (status IN ('borrador', 'enviada', 'pagada', 'anulada')),
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(farm_id, number)
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_farm_id ON invoices(farm_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
+CREATE INDEX IF NOT EXISTS idx_invoices_number ON invoices(number);
+
+ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Farm owner or superadmin access" ON invoices;
+CREATE POLICY "Farm owner or superadmin access" ON invoices FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid())) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()));
+
+-- ================================================================
+-- SHED LOGS TABLE
+-- ================================================================
+CREATE TABLE IF NOT EXISTS shed_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  farm_id UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+  batch_id UUID REFERENCES batches(id) ON DELETE SET NULL,
+  activity_type TEXT NOT NULL DEFAULT 'otros' CHECK (activity_type IN ('limpieza', 'desinfeccion', 'mantenimiento', 'reparacion', 'inspeccion', 'otros')),
+  description TEXT NOT NULL DEFAULT '',
+  cost NUMERIC(12,2) DEFAULT 0,
+  performed_by TEXT DEFAULT '',
+  performed_at DATE NOT NULL DEFAULT CURRENT_DATE,
+  notes TEXT DEFAULT '',
+  photos JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_shed_logs_farm_id ON shed_logs(farm_id);
+CREATE INDEX IF NOT EXISTS idx_shed_logs_batch_id ON shed_logs(batch_id);
+CREATE INDEX IF NOT EXISTS idx_shed_logs_activity_type ON shed_logs(activity_type);
+CREATE INDEX IF NOT EXISTS idx_shed_logs_performed_at ON shed_logs(performed_at);
+
+ALTER TABLE shed_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Farm owner or superadmin access" ON shed_logs;
+CREATE POLICY "Farm owner or superadmin access" ON shed_logs FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid())) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()));
+
+-- Audit triggers for new tables
+DROP TRIGGER IF EXISTS audit_invoices_trigger ON invoices;
+DROP TRIGGER IF EXISTS audit_shed_logs_trigger ON shed_logs;
+CREATE TRIGGER audit_invoices_trigger AFTER INSERT OR UPDATE OR DELETE ON invoices FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
+CREATE TRIGGER audit_shed_logs_trigger AFTER INSERT OR UPDATE OR DELETE ON shed_logs FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 `

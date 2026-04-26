@@ -46,13 +46,23 @@ import {
 } from 'lucide-react'
 // Granja Nidal: single-farm mode — FarmSetup removed
 import CashFlowPanel from '@/components/cash-flow-panel'
+import UserManagementPanel from '@/components/user-management-panel'
+import InventoryPanel from '@/components/inventory-panel'
+import PredictivePanel from '@/components/predictive-panel'
+import InvoicesPanel from '@/components/invoices-panel'
+import BackupPanel from '@/components/backup-panel'
+import ShedLogPanel from '@/components/shed-log-panel'
+import WeatherWidget from '@/components/weather-widget'
+import OfflineBanner from '@/components/offline-banner'
+import PWAInstallPrompt from '@/components/pwa-install-prompt'
 import { useAuth } from '@/hooks/use-auth'
+import { useNotifications } from '@/hooks/use-notifications'
 import { useRouter } from 'next/navigation'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { LogOut, User, Loader2 } from 'lucide-react'
+import { LogOut, User, Loader2, Users, Package, Brain, Database, ClipboardList } from 'lucide-react'
 import { isSupabaseConfigured, getFarmId } from '@/lib/supabase'
 
 // ================================================================
@@ -676,6 +686,9 @@ export default function Home() {
   const router = useRouter()
   const { user, loading: authLoading, isAuthenticated, signOut } = useAuth()
 
+  // ---- Notifications ----
+  const { unreadCount: notifUnreadCount, requestPermission: requestNotifPermission, permission: notifPermission, clearAll: clearNotifs } = useNotifications()
+
   const handleSignOut = useCallback(async () => {
     try {
       await signOut()
@@ -695,11 +708,11 @@ export default function Home() {
   useEffect(() => {
     if (mounted && isSupabaseConfigured() && isAuthenticated) {
       const setupVersion = localStorage.getItem('granja-nidal-setup-version')
-      if (setupVersion !== 'v2') {
+      if (setupVersion !== 'v3') {
         fetch('/api/admin/setup', { method: 'POST' })
           .then(r => r.json())
           .then(data => {
-            if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v2')
+            if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v3')
           })
           .catch(() => {})
       }
@@ -707,7 +720,7 @@ export default function Home() {
   }, [mounted, isAuthenticated])
 
   // ---- Navigation state ----
-  const [view, setView] = useState<'dashboard' | 'lot-detail' | 'reports' | 'history' | 'map' | 'reminders' | 'cash-flow'>('dashboard')
+  const [view, setView] = useState<'dashboard' | 'lot-detail' | 'reports' | 'history' | 'map' | 'reminders' | 'cash-flow' | 'inventory' | 'users' | 'invoices' | 'backup' | 'shed-log' | 'predictive'>('dashboard')
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [configOpen, setConfigOpen] = useState(false)
 
@@ -1140,8 +1153,11 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-stone-50 to-amber-50/30">
+      {/* Offline Banner */}
+      <OfflineBanner />
+
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-200">
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-stone-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -1169,6 +1185,21 @@ export default function Home() {
                     {urgentReminderCount} alerta{urgentReminderCount !== 1 ? 's' : ''}
                   </Badge>
                   <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                </button>
+              )}
+              {/* Notification bell (push/email) */}
+              {notifUnreadCount > 0 && (
+                <button onClick={clearNotifs} className="relative cursor-pointer" title="Limpiar notificaciones">
+                  <Badge className="text-xs bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors cursor-pointer">
+                    <Bell className="w-3 h-3 mr-1" />
+                    {notifUnreadCount} notif{notifUnreadCount !== 1 ? '.' : '.'}
+                  </Badge>
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
+                </button>
+              )}
+              {notifUnreadCount === 0 && notifPermission !== 'granted' && (
+                <button onClick={requestNotifPermission} className="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center transition-colors" title="Activar notificaciones push">
+                  <Bell className="w-4 h-4 text-stone-400" />
                 </button>
               )}
               <button
@@ -1280,6 +1311,9 @@ export default function Home() {
               </Card>
             </div>
 
+            {/* Weather Widget */}
+            <WeatherWidget avgProduction={null} fmtNum={fmtNum} />
+
             {/* Update Button */}
             <div className={`flex items-center justify-between mb-6 p-3 rounded-xl bg-white border-2 border-dashed transition-all duration-300 ${
               hasPendingChanges ? 'border-amber-400 bg-amber-50/50 shadow-sm' : 'border-green-300 bg-green-50/30'
@@ -1355,7 +1389,7 @@ export default function Home() {
             {/* Quick Access Cards */}
             <div>
               <h2 className="text-base font-bold text-stone-800 mb-3">Herramientas</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <button
                   onClick={() => setView('cash-flow')}
                   className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
@@ -1409,6 +1443,100 @@ export default function Home() {
                     <div>
                       <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Vista Granja</h3>
                       <p className="text-[11px] text-stone-400">Mapa interactivo de la granja</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setView('inventory')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-colors">
+                      <Package className="w-5 h-5 text-amber-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Inventario</h3>
+                      <p className="text-[11px] text-stone-400">Control de stock y movimientos</p>
+                    </div>
+                  </div>
+                </button>
+                {/* Users Management - only visible for superadmin */}
+                {user?.email && (
+                  <button
+                    onClick={() => setView('users')}
+                    className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center group-hover:bg-violet-200 transition-colors">
+                        <Users className="w-5 h-5 text-violet-700" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Usuarios</h3>
+                        <p className="text-[11px] text-stone-400">Gestion de roles y permisos</p>
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Advanced Tools */}
+            <div>
+              <h2 className="text-base font-bold text-stone-800 mb-3">Herramientas Avanzadas</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <button
+                  onClick={() => setView('predictive')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-teal-100 flex items-center justify-center group-hover:bg-teal-200 transition-colors">
+                      <Brain className="w-5 h-5 text-teal-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Analisis Predictivo</h3>
+                      <p className="text-[11px] text-stone-400">Prediccion de produccion e ingresos</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setView('invoices')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-rose-100 flex items-center justify-center group-hover:bg-rose-200 transition-colors">
+                      <FileText className="w-5 h-5 text-rose-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Facturas</h3>
+                      <p className="text-[11px] text-stone-400">Creacion y gestion de facturas</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setView('shed-log')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center group-hover:bg-cyan-200 transition-colors">
+                      <ClipboardList className="w-5 h-5 text-cyan-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Bitacora</h3>
+                      <p className="text-[11px] text-stone-400">Registro de actividades por galpon</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setView('backup')}
+                  className="group text-left p-4 rounded-xl border border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
+                      <Database className="w-5 h-5 text-indigo-700" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-700 group-hover:text-stone-900">Backup</h3>
+                      <p className="text-[11px] text-stone-400">Respaldo y restauracion de datos</p>
                     </div>
                   </div>
                 </button>
@@ -1514,6 +1642,58 @@ export default function Home() {
             calculations={liveCalcs}
           />
         )}
+
+        {/* ====================== INVENTORY VIEW ====================== */}
+        {view === 'inventory' && (
+          <InventoryPanel
+            batches={batches}
+            config={config}
+            fmtRD={fmtRD}
+            fmtNum={fmtNum}
+            goBack={goBack}
+          />
+        )}
+
+        {/* ====================== USERS VIEW ====================== */}
+        {view === 'users' && (
+          <UserManagementPanel goBack={goBack} />
+        )}
+
+        {/* ====================== PREDICTIVE VIEW ====================== */}
+        {view === 'predictive' && (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Button variant="ghost" size="sm" onClick={goBack} className="gap-1 text-xs h-8">
+                <ChevronLeft className="w-4 h-4" /> Volver
+              </Button>
+              <h2 className="text-lg font-bold text-stone-800">Analisis Predictivo</h2>
+            </div>
+            <PredictivePanel goBack={goBack} />
+          </div>
+        )}
+
+        {/* ====================== INVOICES VIEW ====================== */}
+        {view === 'invoices' && (
+          <InvoicesPanel goBack={goBack} />
+        )}
+
+        {/* ====================== BACKUP VIEW ====================== */}
+        {view === 'backup' && (
+          <BackupPanel goBack={goBack} isSuperadmin={true} />
+        )}
+
+        {/* ====================== SHED LOG VIEW ====================== */}
+        {view === 'shed-log' && (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Button variant="ghost" size="sm" onClick={goBack} className="gap-1 text-xs h-8">
+                <ChevronLeft className="w-4 h-4" /> Volver
+              </Button>
+              <h2 className="text-lg font-bold text-stone-800">Bitacora de Galpones</h2>
+            </div>
+            <ShedLogPanel goBack={goBack} batches={batches.map(b => ({ id: b.id, name: b.name }))} />
+          </div>
+        )}
       </main>
 
       {/* Config Sheet */}
@@ -1552,6 +1732,9 @@ export default function Home() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* PWA Install Prompt */}
+      <PWAInstallPrompt />
     </div>
   )
 }
