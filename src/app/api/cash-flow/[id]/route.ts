@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
+import { validateBody, cashFlowUpdateSchema } from '@/lib/validators'
 
 // PUT /api/cash-flow/[id] - Update a single cash flow entry
 export async function PUT(
@@ -18,27 +19,38 @@ export async function PUT(
   const { id } = await params
   const body = await req.json()
 
+  // SECURITY FIX VULN-06: Zod validation
+  const validation = validateBody(cashFlowUpdateSchema, body)
+  if (validation.error) {
+    return NextResponse.json({ error: validation.error.message, details: validation.error.details }, { status: 400 })
+  }
+
+  // Sanitize: ensure id is safe
+  if (!/^[a-zA-Z0-9_\-:]+$/.test(id)) {
+    return NextResponse.json({ error: 'ID invalido' }, { status: 400 })
+  }
+
   // Delete by entry_key or by UUID id
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
 
   let query
   if (isUUID) {
     query = supabase.from('cash_flow_entries').update({
-      date: body.date,
-      category: body.category,
-      description: body.description || '',
-      amount: body.amount,
-      type: body.type,
-      reference: body.reference || '',
+      date: validation.data!.date,
+      category: validation.data!.category,
+      description: validation.data!.description,
+      amount: validation.data!.amount,
+      type: validation.data!.type,
+      reference: validation.data!.reference,
     }).eq('id', id)
   } else {
     query = supabase.from('cash_flow_entries').update({
-      date: body.date,
-      category: body.category,
-      description: body.description || '',
-      amount: body.amount,
-      type: body.type,
-      reference: body.reference || '',
+      date: validation.data!.date,
+      category: validation.data!.category,
+      description: validation.data!.description,
+      amount: validation.data!.amount,
+      type: validation.data!.type,
+      reference: validation.data!.reference,
     }).eq('entry_key', id)
   }
 
@@ -65,6 +77,11 @@ export async function DELETE(
   if (authError) return authError
 
   const { id } = await params
+
+  // Sanitize: ensure id is safe
+  if (!/^[a-zA-Z0-9_\-:]+$/.test(id)) {
+    return NextResponse.json({ error: 'ID invalido' }, { status: 400 })
+  }
 
   // Delete by entry_key or by UUID id
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)

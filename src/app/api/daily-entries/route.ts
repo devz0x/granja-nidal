@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
+import { validateBody, dailyEntrySchema, dailyEntryBatchSchema } from '@/lib/validators'
 
 // GET /api/daily-entries - with filters
 export async function GET(req: NextRequest) {
@@ -10,16 +11,16 @@ export async function GET(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient()
 
-  // Verify authentication
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
-
+  // SECURITY FIX VULN-15: Verify farm access
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
+  const { error: authError } = await verifyFarmAccess(farmId || '')
+  if (authError) return authError
+
   const batchId = searchParams.get('batch_id')
   const dateFrom = searchParams.get('date_from')
   const dateTo = searchParams.get('date_to')
-  const limit = parseInt(searchParams.get('limit') || '100')
+  const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 1000) // Cap at 1000
 
   if (!farmId) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
@@ -70,20 +71,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
   }
 
+  // SECURITY FIX VULN-15: Verify farm access
+  const farmAuth = await verifyFarmAccess(farmId)
+  if (farmAuth.error) return farmAuth.error
+
   const body = await req.json()
 
+  // SECURITY FIX VULN-06: Zod validation
   // Support batch insert (array of entries)
   if (Array.isArray(body.entries)) {
-    const entries = body.entries.map((e: Record<string, unknown>) => ({
+    const validation = validateBody(dailyEntryBatchSchema, body)
+    if (validation.error) {
+      return NextResponse.json({ error: validation.error.message, details: validation.error.details }, { status: 400 })
+    }
+
+    const entries = validation.data!.entries.map((e) => ({
       farm_id: farmId,
       batch_id: e.batch_id,
       date: e.date,
-      eggs_collected: e.eggs_collected || 0,
-      eggs_broken: e.eggs_broken || 0,
-      mortality: e.mortality || 0,
-      feed_kg: e.feed_kg || 0,
-      water_liters: e.water_liters || 0,
-      notes: e.notes || '',
+      eggs_collected: e.eggs_collected,
+      eggs_broken: e.eggs_broken,
+      mortality: e.mortality,
+      feed_kg: e.feed_kg,
+      water_liters: e.water_liters,
+      notes: e.notes,
     }))
 
     const { data, error } = await supabase
@@ -98,19 +109,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ entries: data })
   }
 
-  // Single entry
+  // Single entry validation
+  const validation = validateBody(dailyEntrySchema, body)
+  if (validation.error) {
+    return NextResponse.json({ error: validation.error.message, details: validation.error.details }, { status: 400 })
+  }
+
+  const entry = validation.data!
   const { data, error } = await supabase
     .from('daily_entries')
     .upsert({
       farm_id: farmId,
-      batch_id: body.batch_id,
-      date: body.date,
-      eggs_collected: body.eggs_collected || 0,
-      eggs_broken: body.eggs_broken || 0,
-      mortality: body.mortality || 0,
-      feed_kg: body.feed_kg || 0,
-      water_liters: body.water_liters || 0,
-      notes: body.notes || '',
+      batch_id: entry.batch_id,
+      date: entry.date,
+      eggs_collected: entry.eggs_collected,
+      eggs_broken: entry.eggs_broken,
+      mortality: entry.mortality,
+      feed_kg: entry.feed_kg,
+      water_liters: entry.water_liters,
+      notes: entry.notes,
     }, { onConflict: 'farm_id,batch_id,date' })
     .select()
     .single()

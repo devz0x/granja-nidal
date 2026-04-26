@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
+import { validateBody, monthSchema } from '@/lib/validators'
 
 /**
  * GET /api/cash-flow/sync?farm_id=xxx&month=YYYY-MM
@@ -13,7 +14,7 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = await createServerSupabaseClient()
-  const { error: authError } = await verifyAuth()
+  const { error: authError } = await verifyFarmAccess(req.nextUrl.searchParams.get('farm_id') || '')
   if (authError) return authError
 
   const { searchParams } = new URL(req.url)
@@ -22,6 +23,12 @@ export async function GET(req: NextRequest) {
 
   if (!farmId || !month) {
     return NextResponse.json({ error: 'farm_id and month are required' }, { status: 400 })
+  }
+
+  // SECURITY FIX VULN-06: Validate month format
+  const monthValidation = monthSchema.safeParse(month)
+  if (!monthValidation.success) {
+    return NextResponse.json({ error: 'Formato de mes invalido. Use YYYY-MM.' }, { status: 400 })
   }
 
   // Build date range for the month
@@ -106,7 +113,6 @@ export async function GET(req: NextRequest) {
   for (const [batchId, kg] of Object.entries(feedByBatch)) {
     const phase = batchPhaseMap[batchId] || 'postura'
     const phasePrice = Number(feedPhases[phase]?.price) || defaultFeedPricePerQuintal
-    // Price is per quintal (100 kg), so cost = kg * (price / 100)
     feedCost += Math.round(kg * (phasePrice / 100))
   }
   feedCost = Math.round(feedCost)
@@ -251,7 +257,8 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/cash-flow/sync?farm_id=xxx&month=YYYY-MM
- * Replaces auto-sync cash flow entries for a given month with new aggregated entries.
+ * SECURITY FIX VULN-12: Now uses atomic RPC function (sync_cash_flow_entries)
+ * instead of separate DELETE+INSERT that could leave data in inconsistent state.
  */
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
@@ -269,6 +276,16 @@ export async function POST(req: NextRequest) {
   if (!farmId || !month) {
     return NextResponse.json({ error: 'farm_id and month are required' }, { status: 400 })
   }
+
+  // Validate month format
+  const monthValidation = monthSchema.safeParse(month)
+  if (!monthValidation.success) {
+    return NextResponse.json({ error: 'Formato de mes invalido. Use YYYY-MM.' }, { status: 400 })
+  }
+
+  // SECURITY FIX VULN-15: Verify farm access
+  const farmAuth = await verifyFarmAccess(farmId)
+  if (farmAuth.error) return farmAuth.error
 
   const body = await req.json()
   const entries = body.entries as Array<{
@@ -288,24 +305,9 @@ export async function POST(req: NextRequest) {
   const lastDay = new Date(year, mon, 0).getDate()
   const dateTo = `${year}-${String(mon).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
-  // Delete existing auto-sync entries for this month
-  const { error: deleteError } = await supabase
-    .from('cash_flow_entries')
-    .delete()
-    .eq('farm_id', farmId)
-    .like('reference', 'auto-sync-%')
-    .gte('date', dateFrom)
-    .lte('date', dateTo)
-
-  if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 })
-  }
-
-  // Insert new auto-sync entries
+  // SECURITY FIX VULN-12: Use atomic RPC function instead of separate DELETE+INSERT
   const newEntries = entries.map((entry, idx) => ({
-    farm_id: farmId,
     entry_key: `auto-sync-${month}-${entry.category}-${idx}`,
-    date: dateTo, // Use last day of month for monthly entries
     category: entry.category,
     description: entry.description,
     amount: entry.amount,
@@ -313,18 +315,78 @@ export async function POST(req: NextRequest) {
     reference: `auto-sync-${month}`,
   }))
 
-  const { data, error } = await supabase
-    .from('cash_flow_entries')
-    .insert(newEntries)
-    .select()
+  try {
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      'sync_cash_flow_entries',
+      {
+        p_farm_id: farmId,
+        p_date_from: dateFrom,
+        p_date_to: dateTo,
+        p_entries: newEntries,
+      }
+    )
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    if (rpcError) {
+      // Fallback to separate operations if RPC doesn't exist yet
+      console.warn('[cash-flow sync] RPC not available, using fallback:', rpcError.message)
+
+      // Fallback: separate delete + insert (with error handling)
+      const { error: deleteError } = await supabase
+        .from('cash_flow_entries')
+        .delete()
+        .eq('farm_id', farmId)
+        .like('reference', 'auto-sync-%')
+        .gte('date', dateFrom)
+        .lte('date', dateTo)
+
+      if (deleteError) {
+        return NextResponse.json({ error: deleteError.message }, { status: 500 })
+      }
+
+      const insertRows = entries.map((entry, idx) => ({
+        farm_id: farmId,
+        entry_key: `auto-sync-${month}-${entry.category}-${idx}`,
+        date: dateTo,
+        category: entry.category,
+        description: entry.description,
+        amount: entry.amount,
+        type: entry.type,
+        reference: `auto-sync-${month}`,
+      }))
+
+      const { data, error: insertError } = await supabase
+        .from('cash_flow_entries')
+        .insert(insertRows)
+        .select()
+
+      if (insertError) {
+        return NextResponse.json({ error: insertError.message }, { status: 500 })
+      }
+
+      return NextResponse.json({
+        success: true,
+        entriesCreated: (data || []).length,
+        entries: data,
+      })
+    }
+
+    // Fetch the newly created entries to return them
+    const { data: createdEntries, error: fetchError } = await supabase
+      .from('cash_flow_entries')
+      .select('*')
+      .eq('farm_id', farmId)
+      .like('reference', `auto-sync-${month}`)
+      .gte('date', dateFrom)
+      .lte('date', dateTo)
+      .order('created_at', { ascending: false })
+
+    return NextResponse.json({
+      success: true,
+      entriesCreated: rpcData || 0,
+      entries: createdEntries || [],
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Error desconocido'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  return NextResponse.json({
-    success: true,
-    entriesCreated: (data || []).length,
-    entries: data,
-  })
 }

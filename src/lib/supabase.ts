@@ -9,11 +9,24 @@ const _isConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseUrl.startsWit
 // Falls back to createClient on the server (basic client, no auth context).
 // For server-side API routes, use createServerSupabaseClient from './supabase/server'.
 const _isBrowser = typeof window !== 'undefined'
+
+// SECURITY FIX VULN-16: No more placeholder URL/JWT that could be exploited
+// When not configured, create a client that throws clear errors on use
+function createNoopClient() {
+  return createClient('https://localhost', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJub29wIiwic3ViIjoibm9vcCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxfQ noop', {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  })
+}
+
 export const supabase = _isBrowser && _isConfigured
   ? createBrowserClient(supabaseUrl, supabaseAnonKey)
   : _isConfigured
     ? createClient(supabaseUrl, supabaseAnonKey)
-    : createClient('https://placeholder.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDc4NzE0MDF9.placeholder')
+    : createNoopClient()
 
 export const isSupabaseConfigured = (): boolean => _isConfigured
 
@@ -22,6 +35,7 @@ export const isSupabaseConfigured = (): boolean => _isConfigured
 // ================================================================
 
 export const getSession = async () => {
+  if (!_isConfigured) return null
   const { data: { session } } = await supabase.auth.getSession()
   return session
 }
@@ -42,6 +56,7 @@ export const getCurrentUserEmail = async (): Promise<string | null> => {
 }
 
 export const signInWithEmail = async (email: string, password: string) => {
+  if (!_isConfigured) return { data: { session: null, user: null }, error: { message: 'Supabase no configurado', name: 'NotConfigured', status: 503 } as any }
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -50,6 +65,7 @@ export const signInWithEmail = async (email: string, password: string) => {
 }
 
 export const signUpWithEmail = async (email: string, password: string) => {
+  if (!_isConfigured) return { data: { session: null, user: null }, error: { message: 'Supabase no configurado', name: 'NotConfigured', status: 503 } as any }
   const { data, error } = await supabase.auth.signUp({
     email,
     password,

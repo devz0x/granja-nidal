@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
+import { validateBody, batchCreateSchema } from '@/lib/validators'
 
 // GET /api/batches - Get all batches for a farm
 export async function GET(req: NextRequest) {
@@ -10,16 +11,16 @@ export async function GET(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient()
 
-  // Verify authentication
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
-
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
   }
+
+  // SECURITY FIX VULN-15: Verify farm access
+  const { error: authError } = await verifyFarmAccess(farmId)
+  if (authError) return authError
 
   const { data, error } = await supabase
     .from('batches')
@@ -53,20 +54,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
   }
 
+  // SECURITY FIX VULN-15: Verify farm access
+  const farmAuth = await verifyFarmAccess(farmId)
+  if (farmAuth.error) return farmAuth.error
+
   const body = await req.json()
+
+  // SECURITY FIX VULN-06: Zod validation
+  const validation = validateBody(batchCreateSchema, body)
+  if (validation.error) {
+    return NextResponse.json({ error: validation.error.message, details: validation.error.details }, { status: 400 })
+  }
 
   const { data, error } = await supabase
     .from('batches')
     .insert({
       farm_id: farmId,
-      batch_key: body.batch_key || `batch-${Date.now()}`,
-      name: body.name,
-      hens: body.hens || 2000,
-      laying_rate: body.laying_rate || 80,
-      is_laying: body.is_laying || false,
-      cycle_month: body.cycle_month || 0,
-      phase: body.phase || 'pre_inicio',
-      sort_order: body.sort_order || 0,
+      batch_key: validation.data!.batch_key || `batch-${Date.now()}`,
+      name: validation.data!.name,
+      hens: validation.data!.hens,
+      laying_rate: validation.data!.laying_rate,
+      is_laying: validation.data!.is_laying,
+      cycle_month: validation.data!.cycle_month,
+      phase: validation.data!.phase,
+      sort_order: validation.data!.sort_order,
     })
     .select()
     .single()

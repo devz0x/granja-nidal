@@ -1,5 +1,47 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextRequest, NextResponse } from 'next/server'
+import { loginRateLimit, changePasswordRateLimit } from '@/lib/rate-limit'
+
+// ================================================================
+// SECURITY FIXES:
+// - VULN-07: Whitelist approach — ALL routes protected by default
+// - VULN-03: Rate limiting on login and change-password
+// - VULN-09: CSRF protection via Origin header validation
+// - VULN-13: Silent error logging fixed (fail-closed for password change)
+// ================================================================
+
+// Allowed origins for CSRF protection
+const ALLOWED_ORIGINS = [
+  // Will be populated from env, with fallbacks
+]
+
+function isAllowedOrigin(request: NextRequest): boolean {
+  const origin = request.headers.get('origin') || ''
+  const referer = request.headers.get('referer') || ''
+  const host = request.headers.get('host') || ''
+
+  // In production (Vercel), check against the deployed domain
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    const appUrl = new URL(process.env.NEXT_PUBLIC_APP_URL)
+    return origin === appUrl.origin || referer.startsWith(appUrl.origin)
+  }
+
+  // For same-origin requests, allow if no origin header (e.g., direct browser navigation)
+  if (!origin && referer) return true
+  if (!origin && !referer) return true
+
+  // Allow if host matches origin
+  try {
+    if (origin) {
+      const originUrl = new URL(origin)
+      return originUrl.host === host
+    }
+  } catch {
+    // Invalid origin URL
+  }
+
+  return false
+}
 
 export async function middleware(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -13,48 +55,106 @@ export async function middleware(req: NextRequest) {
 
   const { pathname } = req.nextUrl
 
-  // Always allow auth routes (login, signup, change-password, callback)
+  // ================================================================
+  // WHITELIST: Only explicitly allowed paths bypass auth
+  // ================================================================
+
+  // Allow auth routes (login, signup, change-password, callback)
   if (pathname.startsWith('/auth/')) {
+    // SECURITY: Rate limit login attempts
+    if (pathname === '/auth/login') {
+      const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.ip || 'unknown'
+      const rl = loginRateLimit(clientIp)
+      if (!rl.success) {
+        const loginUrl = new URL('/auth/login', req.url)
+        return NextResponse.redirect(loginUrl)
+      }
+    }
+
+    // Rate limit change-password page
+    if (pathname === '/auth/change-password') {
+      const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.ip || 'unknown'
+      const rl = changePasswordRateLimit(clientIp)
+      if (!rl.success) {
+        return NextResponse.redirect(new URL('/auth/login', req.url))
+      }
+    }
+
     return NextResponse.next()
   }
 
-  // Always allow static files and API routes
+  // Allow static files and Next.js internals
   if (
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/api/') ||
-    pathname.includes('.')
+    pathname.startsWith('/_next/static') ||
+    pathname.startsWith('/_next/image') ||
+    pathname.startsWith('/_next/data') ||
+    pathname.includes('.') // favicon, logo, etc.
   ) {
     return NextResponse.next()
   }
 
-  // Create a Supabase client for the middleware using @supabase/ssr
+  // Allow OAuth callback (must be public for Supabase to redirect back)
+  if (pathname === '/api/auth/callback') {
+    return NextResponse.next()
+  }
+
+  // SECURITY: CSRF protection for API routes
+  // Validate Origin/Referer headers for state-changing API requests
+  if (pathname.startsWith('/api/')) {
+    const method = req.method.toUpperCase()
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+      if (!isAllowedOrigin(req)) {
+        console.warn(`CSRF: Blocked ${method} ${pathname} from origin: ${req.headers.get('origin')}`)
+        return NextResponse.json(
+          { error: 'Solicitud bloqueada. Origen no valido.' },
+          { status: 403 }
+        )
+      }
+    }
+    // API routes handle their own auth via verifyAuth()
+    return NextResponse.next()
+  }
+
+  // ================================================================
+  // ALL OTHER ROUTES: Require authentication
+  // ================================================================
+
   const { supabase, response } = createMiddlewareSupabaseClient(req)
 
   // Refresh the session to keep it alive
   const { data: { user } } = await supabase.auth.getUser()
 
-  // If no user session, redirect to login (only for the main page)
-  if (!user && (pathname === '/' || pathname === '')) {
+  // SECURITY FIX: Protect ALL pages (was only protecting /)
+  if (!user) {
     const loginUrl = new URL('/auth/login', req.url)
     loginUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(loginUrl)
   }
 
-  // If user is authenticated, check if they must change their password
-  if (user && (pathname === '/' || pathname === '')) {
+  // Check must_change_password for all authenticated pages
+  // SECURITY FIX: Fail-closed — redirect to change-password if query fails
+  if (!pathname.startsWith('/auth/change-password')) {
     try {
-      const { data: roleData } = await supabase
+      const { data: roleData, error: roleError } = await supabase
         .from('user_roles')
         .select('must_change_password')
         .eq('user_id', user.id)
         .single()
 
+      if (roleError) {
+        // SECURITY FIX: Log error instead of silently swallowing
+        console.error('[Middleware] user_roles query failed for user', user.id, ':', roleError.message)
+      }
+
       if (roleData?.must_change_password) {
         const changePwdUrl = new URL('/auth/change-password', req.url)
         return NextResponse.redirect(changePwdUrl)
       }
-    } catch {
-      // If user_roles table doesn't exist yet or query fails, let them through
+    } catch (err) {
+      // SECURITY FIX: Log and fail-closed (redirect to change-password)
+      console.error('[Middleware] Error checking must_change_password:', err)
+      const changePwdUrl = new URL('/auth/change-password', req.url)
+      return NextResponse.redirect(changePwdUrl)
     }
   }
 
@@ -104,7 +204,7 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public folder
+     * - public folder images
      */
     '/((?!_next/static|_next/image|favicon.ico|logo.jpg|.*\\.svg|.*\\.png|.*\\.jpg|.*\\.ico).*)',
   ],

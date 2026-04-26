@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth-api'
+import { setupRateLimit, apiRateLimit } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 
@@ -9,18 +10,30 @@ export const runtime = 'nodejs'
  * Setup endpoint that creates user_roles and audit_log tables,
  * triggers, functions, and RLS policies in Supabase.
  *
- * Requires: POSTGRES_URL env var (auto-set by Supabase Vercel integration)
- * Security: Only authenticated users can run this
+ * SECURITY FIXES:
+ * - Authentication is now MANDATORY (not optional)
+ * - SSL verification is ENABLED (rejectUnauthorized: true)
+ * - Rate limited to 1 request per hour
+ * - feed_inventory UNIQUE constraint fixed to include farm_id
+ * - Cash-flow sync uses atomic RPC (DELETE+INSERT in single call)
  */
 export async function POST(req: NextRequest) {
-  // Optionally verify auth (if user is logged in, use their session)
-  // If not authenticated, the SQL will assign the first auth user as superadmin
-  let user = null
-  try {
-    const authResult = await verifyAuth()
-    user = authResult.user
-  } catch {
-    // Continue without auth - setup can run without it
+  // SECURITY: Rate limit setup endpoint (1 per hour per IP)
+  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  const rl = setupRateLimit(clientIp)
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: 'Demasiadas solicitudes. Intenta de nuevo mas tarde.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } }
+    )
+  }
+
+  // SECURITY FIX: Auth is now REQUIRED (was optional before)
+  const authResult = await verifyAuth()
+  if (authResult.error) return authResult.error
+
+  if (!authResult.user) {
+    return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
   }
 
   // Prefer non-pooling for DDL operations (avoids SSL pooler issues)
@@ -32,16 +45,20 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Force sslmode=no-verify to handle self-signed certs from Supavisor pooler
+  // SECURITY FIX: Do NOT force sslmode=no-verify
+  // Only set sslmode=require if not already specified
   const urlObj = new URL(postgresUrl)
-  urlObj.searchParams.set('sslmode', 'no-verify')
+  if (!urlObj.searchParams.has('sslmode')) {
+    urlObj.searchParams.set('sslmode', 'require')
+  }
   postgresUrl = urlObj.toString()
 
   try {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
-      ssl: { rejectUnauthorized: false },
+      // SECURITY FIX: Enable SSL certificate verification
+      ssl: { rejectUnauthorized: true },
       max: 1,
       idleTimeoutMillis: 30000,
     })
@@ -62,7 +79,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Migracion ejecutada exitosamente. Tablas user_roles y audit_log creadas.',
-      user: user?.email,
+      user: authResult.user.email,
     })
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Error desconocido'
@@ -71,21 +88,33 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // SECURITY FIX: Rate limit and require auth for GET as well
+  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  const rl = apiRateLimit(clientIp)
+  if (!rl.success) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
+  }
+
+  const authResult = await verifyAuth()
+  if (authResult.error) return authResult.error
+
   let postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
   if (!postgresUrl) {
     return NextResponse.json({ configured: false, message: 'POSTGRES_URL no configurada' })
   }
 
   const urlObj = new URL(postgresUrl)
-  urlObj.searchParams.set('sslmode', 'no-verify')
+  if (!urlObj.searchParams.has('sslmode')) {
+    urlObj.searchParams.set('sslmode', 'require')
+  }
   postgresUrl = urlObj.toString()
 
   try {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
-      ssl: { rejectUnauthorized: false },
+      ssl: { rejectUnauthorized: true },
       max: 1,
     })
     const result = await pool.query(
@@ -282,6 +311,43 @@ CREATE POLICY "Farm owner or superadmin access" ON cash_flow_entries FOR ALL USI
 -- Add cash_flow_balances JSONB column to farms table
 ALTER TABLE farms ADD COLUMN IF NOT EXISTS cash_flow_balances JSONB DEFAULT '{}';
 
+-- ================================================================
+-- SECURITY FIX: Atomic sync function (replaces non-atomic DELETE+INSERT)
+-- ================================================================
+CREATE OR REPLACE FUNCTION sync_cash_flow_entries(
+  p_farm_id UUID,
+  p_date_from DATE,
+  p_date_to DATE,
+  p_entries JSONB
+) RETURNS INTEGER AS $$
+DECLARE
+  v_count INTEGER;
+BEGIN
+  -- Atomic: delete old sync entries
+  DELETE FROM cash_flow_entries
+  WHERE farm_id = p_farm_id
+    AND reference LIKE 'auto-sync-%'
+    AND date >= p_date_from
+    AND date <= p_date_to;
+
+  -- Insert new entries from JSONB array
+  INSERT INTO cash_flow_entries (farm_id, entry_key, date, category, description, amount, type, reference)
+  SELECT
+    p_farm_id,
+    elem->>'entry_key',
+    p_date_to::DATE,
+    elem->>'category',
+    elem->>'description',
+    (elem->>'amount')::NUMERIC(12,2),
+    elem->>'type',
+    elem->>'reference'
+  FROM jsonb_array_elements(p_entries) AS elem;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 INSERT INTO user_roles (user_id, role, assigned_by)
 SELECT id, 'superadmin', id FROM auth.users WHERE id NOT IN (SELECT user_id FROM user_roles) LIMIT 1
 ON CONFLICT (user_id) DO NOTHING;
@@ -319,4 +385,39 @@ FROM user_roles ur
 WHERE ur.role = 'superadmin'
   AND NOT EXISTS (SELECT 1 FROM farms WHERE id = '51872fc1-ef45-4a7a-a79c-596c987318ff')
 ON CONFLICT (id) DO NOTHING;
+
+-- ================================================================
+-- SECURITY FIX: Fix feed_inventory UNIQUE constraint
+-- Change from UNIQUE(phase_key) to UNIQUE(farm_id, phase_key)
+-- ================================================================
+DO $$
+BEGIN
+  -- Check if the old constraint exists and drop it
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'feed_inventory_phase_key_key'
+  ) THEN
+    ALTER TABLE feed_inventory DROP CONSTRAINT feed_inventory_phase_key_key;
+    -- Create the corrected unique constraint
+    ALTER TABLE feed_inventory ADD CONSTRAINT feed_inventory_farm_id_phase_key_key UNIQUE (farm_id, phase_key);
+  END IF;
+
+  -- Also handle if constraint has auto-generated name
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'feed_inventory_farm_id_phase_key_key'
+       OR conname = 'feed_inventory_phase_key_key'
+  ) AND EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid = 'feed_inventory'::regclass AND contype = 'u'
+  ) THEN
+    -- Drop any remaining unique constraint on phase_key
+    ALTER TABLE feed_inventory DROP CONSTRAINT (
+      SELECT conname FROM pg_constraint WHERE conrelid = 'feed_inventory'::regclass AND contype = 'u' LIMIT 1
+    );
+    ALTER TABLE feed_inventory ADD CONSTRAINT feed_inventory_farm_id_phase_key_key UNIQUE (farm_id, phase_key);
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  -- If the constraint already has the correct form, ignore
+  IF SQLERRM NOT LIKE '%already exists%' THEN
+    RAISE NOTICE 'feed_inventory constraint migration note: %', SQLERRM;
+  END IF;
+END $$;
 `

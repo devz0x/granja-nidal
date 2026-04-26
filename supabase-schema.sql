@@ -99,11 +99,13 @@ CREATE TABLE IF NOT EXISTS monthly_records (
 );
 
 -- feed inventory
+-- SECURITY FIX VULN-11: UNIQUE constraint includes farm_id for multi-tenant safety
 CREATE TABLE IF NOT EXISTS feed_inventory (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   farm_id UUID REFERENCES farms(id) ON DELETE CASCADE,
-  phase_key TEXT NOT NULL UNIQUE,
+  phase_key TEXT NOT NULL,
   phase TEXT NOT NULL,
+  CONSTRAINT feed_inventory_farm_id_phase_key_key UNIQUE (farm_id, phase_key),
   current_stock_kg NUMERIC(10,2) DEFAULT 0,
   reorder_level_kg NUMERIC(10,2) DEFAULT 0,
   last_purchase DATE,

@@ -1,16 +1,6 @@
 :81 {
-	@transform_port_query {
-		query XTransformPort=*
-	}
-
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
-	}
+	# SECURITY: Removed XTransformPort SSRF vulnerability (was allowing access to any localhost port)
+	# If dynamic port forwarding is needed for development, use environment variables with strict whitelisting.
 
 	handle {
 		reverse_proxy localhost:3000 {

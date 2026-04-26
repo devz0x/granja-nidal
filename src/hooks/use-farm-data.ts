@@ -11,13 +11,24 @@ import {
 
 // ================================================================
 // LOCAL STORAGE HELPERS (fallback)
+// SECURITY FIX VULN-17: Safe JSON parse with basic type validation
 // ================================================================
 function readLS<T>(key: string, fallback: T): T {
   try {
     const saved = localStorage.getItem(key)
-    if (saved) return JSON.parse(saved) as T
-  } catch { /* ignore */ }
-  return fallback
+    if (!saved) return fallback
+    const parsed = JSON.parse(saved)
+    // Basic validation: reject null/undefined for non-null fallbacks,
+    // and reject non-object types when fallback is an object
+    if (parsed === null && fallback !== null) return fallback
+    if (typeof parsed !== typeof fallback) return fallback
+    if (Array.isArray(fallback) && !Array.isArray(parsed)) return fallback
+    return parsed as T
+  } catch {
+    // JSON parse error or type mismatch — corrupted data, clear it
+    try { localStorage.removeItem(key) } catch { /* ignore */ }
+    return fallback
+  }
 }
 
 function writeLS(key: string, value: unknown): void {

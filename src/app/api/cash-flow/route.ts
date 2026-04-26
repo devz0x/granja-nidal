@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
+import { apiRateLimit } from '@/lib/rate-limit'
+import { validateBody, cashFlowEntrySchema, cashFlowBatchSchema } from '@/lib/validators'
 
 // GET /api/cash-flow?farm_id=xxx - Get all cash flow entries for a farm
 export async function GET(req: NextRequest) {
@@ -9,7 +11,7 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = await createServerSupabaseClient()
-  const { error: authError } = await verifyAuth()
+  const { error: authError } = await verifyFarmAccess(req.nextUrl.searchParams.get('farm_id') || '')
   if (authError) return authError
 
   const { searchParams } = new URL(req.url)
@@ -60,10 +62,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const supabase = await createServerSupabaseClient()
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
+  // SECURITY: Rate limiting
+  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  const rl = apiRateLimit(clientIp)
+  if (!rl.success) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
+  }
 
+  const supabase = await createServerSupabaseClient()
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
 
@@ -71,7 +77,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
   }
 
+  const { error: authError } = await verifyFarmAccess(farmId)
+  if (authError) return authError
+
   const body = await req.json()
+
+  // SECURITY FIX VULN-06: Zod validation
+  if (Array.isArray(body)) {
+    const validation = validateBody(cashFlowBatchSchema, body)
+    if (validation.error) {
+      return NextResponse.json({ error: validation.error.message, details: validation.error.details }, { status: 400 })
+    }
+  } else {
+    const validation = validateBody(cashFlowEntrySchema, body)
+    if (validation.error) {
+      return NextResponse.json({ error: validation.error.message, details: validation.error.details }, { status: 400 })
+    }
+  }
 
   // Support both single entry and array of entries
   const entries = Array.isArray(body) ? body : [body]
@@ -109,7 +131,9 @@ export async function PUT(req: NextRequest) {
   }
 
   const supabase = await createServerSupabaseClient()
-  const { error: authError } = await verifyAuth()
+  const { error: authError } = await verifyFarmAccess(
+    new URL(req.url).searchParams.get('farm_id') || ''
+  )
   if (authError) return authError
 
   const { searchParams } = new URL(req.url)
@@ -123,6 +147,9 @@ export async function PUT(req: NextRequest) {
 
   // Update balances
   if (body.balances !== undefined) {
+    if (typeof body.balances !== 'object' || body.balances === null) {
+      return NextResponse.json({ error: 'balances must be an object' }, { status: 400 })
+    }
     const { error } = await supabase
       .from('farms')
       .update({ cash_flow_balances: body.balances })
@@ -144,7 +171,9 @@ export async function DELETE(req: NextRequest) {
   }
 
   const supabase = await createServerSupabaseClient()
-  const { error: authError } = await verifyAuth()
+  const { error: authError } = await verifyFarmAccess(
+    new URL(req.url).searchParams.get('farm_id') || ''
+  )
   if (authError) return authError
 
   const { searchParams } = new URL(req.url)
