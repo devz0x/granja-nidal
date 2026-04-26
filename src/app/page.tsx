@@ -716,7 +716,7 @@ export default function Home() {
   useEffect(() => {
     if (mounted && isSupabaseConfigured() && isAuthenticated) {
       const setupVersion = localStorage.getItem('granja-nidal-setup-version')
-      if (setupVersion !== 'v9') {
+      if (setupVersion !== 'v10') {
         // Step 1: Run fix-rls to disable RLS on all tables (bypasses RLS entirely)
         fetch('/api/admin/fix-rls', { method: 'POST' })
           .then(r => r.json())
@@ -730,13 +730,13 @@ export default function Home() {
               const diag = data.diagnostics ? JSON.stringify(data.diagnostics, null, 2) : 'No diagnostics'
               toast.error('Error de configuracion', { description: `${data.error || 'Unknown error'}\n${diag}` })
               // Still mark as attempted to avoid infinite retry loops
-              localStorage.setItem('granja-nidal-setup-version', 'v9')
+              localStorage.setItem('granja-nidal-setup-version', 'v10')
             }
           })
           .then(data => {
             if (data) {
               console.log('[setup] full migration response:', JSON.stringify(data))
-              if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v9')
+              if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v10')
             }
           })
           .catch(err => {
@@ -888,6 +888,16 @@ export default function Home() {
               })
               .catch(() => {})
           })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_entries', filter: `farm_id=eq.${FARM_ID}` }, () => {
+            // Trigger refetch for any open views that use daily entries
+            // (handled by polling for now)
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'reminders', filter: `farm_id=eq.${FARM_ID}` }, () => {
+            // Trigger refetch for reminders
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'feed_inventory', filter: `farm_id=eq.${FARM_ID}` }, () => {
+            // Trigger refetch for feed inventory
+          })
           .subscribe()
       } catch {
         // Realtime failed — fall back to polling
@@ -896,7 +906,7 @@ export default function Home() {
       // Module import failed — use polling fallback
     })
 
-    // Always set up polling as fallback (every 30s)
+    // Always set up polling as fallback (every 10s for near-realtime feel)
     interval = setInterval(() => {
       fetchFarmData().then(data => {
         if (!data) return
@@ -915,7 +925,7 @@ export default function Home() {
           }
         }
       }).catch(() => {})
-    }, 30000)
+    }, 10000)
 
     return () => {
       if (channel) channel.unsubscribe()

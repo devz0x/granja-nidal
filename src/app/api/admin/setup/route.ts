@@ -523,4 +523,22 @@ DROP TRIGGER IF EXISTS audit_invoices_trigger ON invoices;
 DROP TRIGGER IF EXISTS audit_shed_logs_trigger ON shed_logs;
 CREATE TRIGGER audit_invoices_trigger AFTER INSERT OR UPDATE OR DELETE ON invoices FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 CREATE TRIGGER audit_shed_logs_trigger AFTER INSERT OR UPDATE OR DELETE ON shed_logs FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
+
+-- ================================================================
+-- ENABLE SUPABASE REALTIME on all data tables
+-- This allows the frontend to subscribe to live changes
+-- ================================================================
+ALTER PUBLICATION supabase_realtime ADD TABLE batches;
+ALTER PUBLICATION supabase_realtime ADD TABLE farms;
+ALTER PUBLICATION supabase_realtime ADD TABLE daily_entries;
+ALTER PUBLICATION supabase_realtime ADD TABLE reminders;
+ALTER PUBLICATION supabase_realtime ADD TABLE structural_expenses;
+ALTER PUBLICATION supabase_realtime ADD TABLE monthly_records;
+ALTER PUBLICATION supabase_realtime ADD TABLE feed_inventory;
+ALTER PUBLICATION supabase_realtime ADD TABLE vaccinations;
+ALTER PUBLICATION supabase_realtime ADD TABLE cash_flow_entries;
+ALTER PUBLICATION supabase_realtime ADD TABLE inventory_movements;
+ALTER PUBLICATION supabase_realtime ADD TABLE invoices;
+ALTER PUBLICATION supabase_realtime ADD TABLE shed_logs;
+ALTER PUBLICATION supabase_realtime ADD TABLE user_roles;
 `
