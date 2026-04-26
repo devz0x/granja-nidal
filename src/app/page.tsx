@@ -691,14 +691,15 @@ export default function Home() {
   useEffect(() => { setMounted(true) }, [])
 
   // ---- Auto-ensure DB setup on first authenticated load (single-farm mode) ----
+  // Run setup once per session (SQL is idempotent with IF NOT EXISTS)
   useEffect(() => {
     if (mounted && isSupabaseConfigured() && isAuthenticated) {
-      const setupDone = localStorage.getItem('granja-nidal-setup-done')
-      if (!setupDone) {
+      const setupVersion = localStorage.getItem('granja-nidal-setup-version')
+      if (setupVersion !== 'v2') {
         fetch('/api/admin/setup', { method: 'POST' })
           .then(r => r.json())
           .then(data => {
-            if (data.success) localStorage.setItem('granja-nidal-setup-done', 'true')
+            if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v2')
           })
           .catch(() => {})
       }

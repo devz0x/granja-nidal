@@ -20,6 +20,7 @@ import {
   Banknote, TrendingUp, TrendingDown, Plus, Trash2, Printer, ChevronLeft, ChevronDown, ChevronUp,
   ArrowUpRight, ArrowDownRight, Wallet, Landmark, Hammer, Calendar,
   Filter, CheckCircle2, CircleDollarSign, FileSpreadsheet, ClipboardList, Sparkles,
+  RefreshCw, Loader2, ArrowRightLeft, Egg, Wheat, AlertTriangle, DollarSign, Info,
 } from 'lucide-react'
 
 // ================================================================
@@ -458,6 +459,82 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
       .map(([key, info]) => ({ value: key, label: `${info.icon} ${info.label}`, group: info.group }))
   }, [formType])
 
+  // ---- Sync from Operations ----
+  const [syncData, setSyncData] = useState<null | {
+    month: string
+    entryCount: number
+    totals: { eggsCollected: number; eggsSold: number; eggsBroken: number; mortality: number; feedKg: number }
+    financial: { eggRevenue: number; feedCost: number; mortalityLoss: number; fixedCostsMonthly: number; structuralTotal: number }
+    suggestions: Array<{ category: string; description: string; amount: number; type: 'inflow' | 'outflow'; source: string; existingAmount?: number }>
+    hasChanges: boolean
+    existingSyncCategories: string[]
+  }>(null)
+  const [syncingOps, setSyncingOps] = useState(false)
+  const [showSyncPanel, setShowSyncPanel] = useState(false)
+
+  const fetchSyncData = useCallback(async () => {
+    if (!FARM_ID) return
+    setSyncingOps(true)
+    try {
+      const res = await fetch(`/api/cash-flow/sync?farm_id=${FARM_ID}&month=${selectedMonth}`)
+      if (res.ok) {
+        const data = await res.json()
+        setSyncData(data)
+        if (data.suggestions.length > 0) {
+          setShowSyncPanel(true)
+        }
+      }
+    } catch { /* ignore */ }
+    finally { setSyncingOps(false) }
+  }, [FARM_ID, selectedMonth])
+
+  const handleSyncConfirm = useCallback(async () => {
+    if (!syncData || !FARM_ID) return
+    setSyncingOps(true)
+    try {
+      const entriesToSync = syncData.suggestions.map(s => ({
+        category: s.category,
+        description: s.description,
+        amount: s.amount,
+        type: s.type,
+      }))
+      const res = await fetch(`/api/cash-flow/sync?farm_id=${FARM_ID}&month=${selectedMonth}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries: entriesToSync }),
+      })
+      if (res.ok) {
+        setShowSyncPanel(false)
+        setSyncData(null)
+        // Re-fetch cash flow entries
+        const cfRes = await fetch(`/api/cash-flow?farm_id=${FARM_ID}`)
+        if (cfRes.ok) {
+          const cfData = await cfRes.json()
+          const mapped = (cfData.entries || []).map((e: Record<string, unknown>) => ({
+            id: e.id as string,
+            date: typeof e.date === 'string' ? e.date.substring(0, 10) : String(e.date),
+            category: e.category as CashFlowCategory,
+            description: (e.description || '') as string,
+            amount: Number(e.amount),
+            type: e.type as EntryType,
+            reference: (e.reference || '') as string,
+            createdAt: (e.createdAt || e.created_at || '') as string,
+          }))
+          setEntries(mapped)
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped))
+        }
+      }
+    } catch { /* ignore */ }
+    finally { setSyncingOps(false) }
+  }, [syncData, FARM_ID, selectedMonth])
+
+  // Fetch sync data when month changes (to check if there are unsynced operations)
+  useEffect(() => {
+    if (FARM_ID) {
+      fetchSyncData()
+    }
+  }, [FARM_ID, selectedMonth, fetchSyncData])
+
   // ---- Quick Auto-fill Suggestion ----
   const [showAutoFillHint, setShowAutoFillHint] = useState(false)
   const handleAutoFillFromConfig = useCallback(() => {
@@ -643,6 +720,117 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
         </div>
       )}
 
+      {/* Sync from Operations */}
+      {FARM_ID && (
+        <div className="print:hidden">
+          {!showSyncPanel ? (
+            <button
+              onClick={() => { if (syncData) setShowSyncPanel(true); else fetchSyncData() }}
+              disabled={syncingOps}
+              className="w-full flex items-center justify-between p-3 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-50 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <div className="flex items-center gap-2">
+                {syncingOps ? <Loader2 className="w-4 h-4 text-blue-500 animate-spin" /> : <ArrowRightLeft className="w-4 h-4 text-blue-500" />}
+                <div className="text-left">
+                  <p className="text-sm font-bold text-stone-800">Sincronizar con operaciones</p>
+                  <p className="text-[11px] text-stone-500">
+                    {syncData?.entryCount
+                      ? `${syncData.entryCount} registros operativos encontrados`
+                      : 'Importar datos de produccion diaria al flujo de caja'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {syncData?.hasChanges && (
+                  <Badge className="bg-green-100 text-green-700 text-[10px]">Actualizable</Badge>
+                )}
+                <RefreshCw className={`w-4 h-4 text-stone-400 ${syncingOps ? 'animate-spin' : ''}`} />
+              </div>
+            </button>
+          ) : syncData && (
+            <Card className="border-blue-200">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ArrowRightLeft className="w-4 h-4 text-blue-500" />
+                    Sincronizar con operaciones del mes
+                  </CardTitle>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setShowSyncPanel(false)}>
+                    <ChevronUp className="w-3 h-3" />
+                  </Button>
+                </div>
+                <CardDescription className="text-[11px]">
+                  {syncData.entryCount} registros operativos en {getMonthLabel(selectedMonth)}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Operations summary */}
+                {syncData.entryCount > 0 && (
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="text-center p-2 rounded-lg bg-orange-50">
+                      <Egg className="w-3.5 h-3.5 mx-auto text-orange-500 mb-1" />
+                      <p className="text-xs font-bold text-stone-800">{syncData.totals.eggsCollected.toLocaleString()}</p>
+                      <p className="text-[9px] text-stone-500">Huevos</p>
+                    </div>
+                    <div className="text-center p-2 rounded-lg bg-red-50">
+                      <AlertTriangle className="w-3.5 h-3.5 mx-auto text-red-400 mb-1" />
+                      <p className="text-xs font-bold text-stone-800">{syncData.totals.eggsBroken}</p>
+                      <p className="text-[9px] text-stone-500">Rotos</p>
+                    </div>
+                    <div className="text-center p-2 rounded-lg bg-amber-50">
+                      <Wheat className="w-3.5 h-3.5 mx-auto text-amber-500 mb-1" />
+                      <p className="text-xs font-bold text-stone-800">{syncData.totals.feedKg.toLocaleString()} kg</p>
+                      <p className="text-[9px] text-stone-500">Alimento</p>
+                    </div>
+                    <div className="text-center p-2 rounded-lg bg-stone-50">
+                      <AlertTriangle className="w-3.5 h-3.5 mx-auto text-stone-400 mb-1" />
+                      <p className="text-xs font-bold text-stone-800">{syncData.totals.mortality}</p>
+                      <p className="text-[9px] text-stone-500">Mortalidad</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Suggested entries */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-stone-600">Registros que se crearan en el flujo de caja:</p>
+                  <div className="space-y-1">
+                    {syncData.suggestions.map(s => (
+                      <div key={s.category} className="flex items-center justify-between text-xs p-2 rounded-lg bg-stone-50">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{CATEGORIES[s.category as CashFlowCategory]?.icon || ''}</span>
+                          <div>
+                            <p className="font-medium text-stone-700">{CATEGORIES[s.category as CashFlowCategory]?.label || s.category}</p>
+                            <p className="text-[10px] text-stone-400">{s.source}</p>
+                          </div>
+                        </div>
+                        <span className={`font-bold ${s.type === 'inflow' ? 'text-green-700' : 'text-red-600'}`}>
+                          {s.type === 'inflow' ? '+' : '-'}{fmtRD(s.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {syncData.existingSyncCategories.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-[10px] text-amber-600 bg-amber-50 p-2 rounded-lg">
+                    <Info className="w-3 h-3 flex-shrink-0" />
+                    <span>Se reemplazaran los registros anteriores sincronizados ({syncData.existingSyncCategories.length} categorias)</span>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" className="gap-1 text-xs bg-blue-600 hover:bg-blue-700 text-white" onClick={handleSyncConfirm} disabled={syncingOps}>
+                    {syncingOps ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                    {syncingOps ? 'Sincronizando...' : 'Confirmar Sincronizacion'}
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowSyncPanel(false)}>Cancelar</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Card className="border-l-4 border-l-stone-400">
@@ -713,52 +901,64 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
             </thead>
             <tbody>
               {/* ---- OPERATIVAS ---- */}
-              <StatementActivityRow
-                activity="operativa"
-                data={cashFlowByActivity.operativa}
-                isExpanded={expandedActivities.has('operativa')}
-                onToggle={() => toggleActivity('operativa')}
-              />
+              {(filterActivity === 'all' || filterActivity === 'operativa') && (
+                <StatementActivityRow
+                  activity="operativa"
+                  data={cashFlowByActivity.operativa}
+                  isExpanded={expandedActivities.has('operativa') || filterActivity === 'operativa'}
+                  onToggle={() => toggleActivity('operativa')}
+                />
+              )}
 
               {/* ---- INVERSION ---- */}
-              <StatementActivityRow
-                activity="inversion"
-                data={cashFlowByActivity.inversion}
-                isExpanded={expandedActivities.has('inversion')}
-                onToggle={() => toggleActivity('inversion')}
-              />
+              {(filterActivity === 'all' || filterActivity === 'inversion') && (
+                <StatementActivityRow
+                  activity="inversion"
+                  data={cashFlowByActivity.inversion}
+                  isExpanded={expandedActivities.has('inversion') || filterActivity === 'inversion'}
+                  onToggle={() => toggleActivity('inversion')}
+                />
+              )}
 
               {/* ---- FINANCIAMIENTO ---- */}
-              <StatementActivityRow
-                activity="financiamiento"
-                data={cashFlowByActivity.financiamiento}
-                isExpanded={expandedActivities.has('financiamiento')}
-                onToggle={() => toggleActivity('financiamiento')}
-              />
+              {(filterActivity === 'all' || filterActivity === 'financiamiento') && (
+                <StatementActivityRow
+                  activity="financiamiento"
+                  data={cashFlowByActivity.financiamiento}
+                  isExpanded={expandedActivities.has('financiamiento') || filterActivity === 'financiamiento'}
+                  onToggle={() => toggleActivity('financiamiento')}
+                />
+              )}
 
               {/* ---- SUMMARY ---- */}
               <tr className="border-t-2 border-stone-300 print:border-t-black">
                 <td className="py-2 font-medium text-stone-600">Saldo Inicial del Periodo</td>
                 <td className="text-right font-medium">{fmtRD(openingBalance)}</td>
               </tr>
-              <tr>
-                <td className="py-1 text-stone-500">+ Flujo Neto de Actividades Operativas</td>
-                <td className={`text-right font-medium ${cashFlowByActivity.operativa.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                  {fmtRD(cashFlowByActivity.operativa.netFlow)}
-                </td>
-              </tr>
-              <tr>
-                <td className="py-1 text-stone-500">+ Flujo Neto de Actividades de Inversion</td>
-                <td className={`text-right font-medium ${cashFlowByActivity.inversion.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                  {fmtRD(cashFlowByActivity.inversion.netFlow)}
-                </td>
-              </tr>
-              <tr>
-                <td className="py-1 text-stone-500">+ Flujo Neto de Actividades de Financiamiento</td>
-                <td className={`text-right font-medium ${cashFlowByActivity.financiamiento.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                  {fmtRD(cashFlowByActivity.financiamiento.netFlow)}
-                </td>
-              </tr>
+              {(filterActivity === 'all' || filterActivity === 'operativa') && (
+                <tr>
+                  <td className="py-1 text-stone-500">+ Flujo Neto de Actividades Operativas</td>
+                  <td className={`text-right font-medium ${cashFlowByActivity.operativa.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {fmtRD(cashFlowByActivity.operativa.netFlow)}
+                  </td>
+                </tr>
+              )}
+              {(filterActivity === 'all' || filterActivity === 'inversion') && (
+                <tr>
+                  <td className="py-1 text-stone-500">+ Flujo Neto de Actividades de Inversion</td>
+                  <td className={`text-right font-medium ${cashFlowByActivity.inversion.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {fmtRD(cashFlowByActivity.inversion.netFlow)}
+                  </td>
+                </tr>
+              )}
+              {(filterActivity === 'all' || filterActivity === 'financiamiento') && (
+                <tr>
+                  <td className="py-1 text-stone-500">+ Flujo Neto de Actividades de Financiamiento</td>
+                  <td className={`text-right font-medium ${cashFlowByActivity.financiamiento.netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {fmtRD(cashFlowByActivity.financiamiento.netFlow)}
+                  </td>
+                </tr>
+              )}
               <tr className={`border-t-2 border-stone-400 print:border-t-black ${closingBalance >= 0 ? 'bg-green-50 print:bg-white' : 'bg-red-50 print:bg-white'}`}>
                 <td className="py-2.5 print:py-2 font-bold text-base print:text-sm">
                   SALDO FINAL DEL PERIODO

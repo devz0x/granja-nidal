@@ -166,6 +166,7 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
   const [vaccineFilterStatus, setVaccineFilterStatus] = useState<string>('all')
   const [vaccineFilterShed, setVaccineFilterShed] = useState<string>('all')
   const [showVaccineForm, setShowVaccineForm] = useState(false)
+  const [cashFlowHint, setCashFlowHint] = useState(false)
   const [newVaccine, setNewVaccine] = useState<Partial<VaccinationRecord>>({
     status: 'programada', via: 'Ocular', dosage: '', lotNumber: '', cycleNumber: 1, shedId: '',
   })
@@ -327,6 +328,8 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
       if (res.ok) {
         setNewEntry({})
         fetchAllData()
+        setCashFlowHint(true)
+        setTimeout(() => setCashFlowHint(false), 5000)
       }
     } catch { /* ignore */ }
   }
@@ -684,6 +687,13 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
               <Plus className="w-3.5 h-3.5" /> Registrar
             </Button>
           </div>
+
+          {cashFlowHint && (
+            <div className="mt-2 flex items-center gap-2 p-2 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-700 animate-in fade-in slide-in-from-top-2 duration-300">
+              <Info className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>Registro guardado. Puedes sincronizar estos datos con el Flujo de Caja desde la seccion de finanzas.</span>
+            </div>
+          )}
 
           {dailyEntries.length > 0 && (
             <div className="mt-4 space-y-2 max-h-60 overflow-y-auto">
