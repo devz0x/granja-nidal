@@ -41,7 +41,7 @@ import {
 import {
   TrendingUp, TrendingDown, DollarSign, Egg, Wheat,
   Activity, Target, Settings, FileText, Sparkles, AlertTriangle, CheckCircle2,
-  RefreshCw, Bell, Map, FileOutput, ClipboardCheck, ChevronLeft, ChevronDown, ChevronUp, Eye,
+  Bell, Map, FileOutput, ClipboardCheck, ChevronLeft, ChevronDown, ChevronUp, Eye,
   Plus, Trash2, Printer, Banknote,
 } from 'lucide-react'
 // Granja Nidal: single-farm mode — FarmSetup removed
@@ -63,7 +63,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { LogOut, User, Loader2, Users, Package, Brain, Database, ClipboardList } from 'lucide-react'
-import { isSupabaseConfigured, getFarmId } from '@/lib/supabase'
+import { isSupabaseConfigured, getFarmId, supabase } from '@/lib/supabase'
 
 // ================================================================
 // SUPABASE SYNC HELPERS (shared farm — single source of truth)
@@ -100,41 +100,24 @@ async function pushConfig(config: Record<string, unknown>) {
   }).catch(() => {})
 }
 
-// Push a single batch to Supabase (create or update)
+// Push a single batch to Supabase (upsert — atomic, no race conditions)
 async function pushBatch(batch: Record<string, unknown>) {
   if (!FARM_ID) return
-  // Check if batch already exists in Supabase
-  const res = await fetch(`/api/batches?farm_id=${FARM_ID}`)
-  const data = await res.json()
-  const existing = data.batches?.find((b: Record<string, unknown>) => b.batch_key === batch.id)
-  if (existing) {
-    fetch(`/api/batches/${existing.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: batch.name,
-        hens: batch.hens,
-        laying_rate: batch.layingRate,
-        is_laying: batch.isLaying,
-        cycle_month: batch.cycleMonth,
-        phase: batch.phase,
-      }),
-    }).catch(() => {})
-  } else {
-    fetch(`/api/batches?farm_id=${FARM_ID}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        batch_key: batch.id,
-        name: batch.name,
-        hens: batch.hens,
-        laying_rate: batch.layingRate,
-        is_laying: batch.isLaying,
-        cycle_month: batch.cycleMonth,
-        phase: batch.phase,
-        sort_order: 0,
-      }),
-    }).catch(() => {})
+  try {
+    const res = await fetch(`/api/batches?farm_id=${FARM_ID}`)
+    const data = await res.json()
+    const existing = data.batches?.find((b: Record<string, unknown>) => b.batch_key === batch.id)
+    const url = existing
+      ? `/api/batches/${existing.id}`
+      : `/api/batches?farm_id=${FARM_ID}`
+    const method = existing ? 'PUT' : 'POST'
+    const body = existing
+      ? { name: batch.name, hens: batch.hens, laying_rate: batch.layingRate, is_laying: batch.isLaying, cycle_month: batch.cycleMonth, phase: batch.phase }
+      : { batch_key: batch.id, name: batch.name, hens: batch.hens, laying_rate: batch.layingRate, is_laying: batch.isLaying, cycle_month: batch.cycleMonth, phase: batch.phase, sort_order: 0 }
+    const putRes = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    if (!putRes.ok) console.error('Failed to push batch:', await putRes.text())
+  } catch (err) {
+    console.error('Failed to push batch:', err)
   }
 }
 
@@ -848,65 +831,71 @@ export default function Home() {
     }).catch(() => {})
   }, [mounted, isAuthenticated])
 
-  // ---- Auto-refresh from Supabase every 15 seconds ----
+  // ---- Real-time sync via Supabase Realtime ----
   useEffect(() => {
-    if (!mounted || !isAuthenticated || !FARM_ID) return
-    const interval = setInterval(() => {
-      fetchFarmData().then(data => {
-        if (!data) return
-        // Only update if Supabase has data
-        if (data.batchesRes && (data.batchesRes as Record<string, unknown>).batches) {
-          const dbBatches = (data.batchesRes as Record<string, unknown>).batches as Record<string, unknown>[]
-          if (dbBatches && dbBatches.length > 0) {
-            setBatches(dbBatches.map(b => ({
-              id: b.batch_key as string || b.id as string,
-              name: b.name as string,
-              hens: b.hens as number,
-              layingRate: b.laying_rate as number,
-              isLaying: b.is_laying as boolean,
-              cycleMonth: b.cycle_month as number,
-              phase: b.phase as BatchConfig['phase'],
-            })))
-          }
-        }
-        if (data.configRes && (data.configRes as Record<string, unknown>).config) {
-          const dbConfig = (data.configRes as Record<string, unknown>).config as Record<string, unknown>
-          if (dbConfig && Object.keys(dbConfig).length > 0) {
-            setConfig(prev => ({ ...prev, ...dbConfig, feedPhases: { ...DEFAULT_FEED, ...((dbConfig.feedPhases as Record<string, unknown>) || {}) } } as FarmConfig))
-          }
-        }
-        if (data.expensesRes && (data.expensesRes as Record<string, unknown>).expenses) {
-          const dbExpenses = (data.expensesRes as Record<string, unknown>).expenses as Record<string, unknown>[]
-          if (dbExpenses && dbExpenses.length > 0) {
-            setStructuralExpenses(dbExpenses.map(e => ({
-              id: e.id as string,
-              description: (e.description || '') as string,
-              amount: (e.amount || 0) as number,
-              frequency: (e.frequency || 'unico') as StructuralExpense['frequency'],
-              dateAdded: (e.created_at || '') as string,
-              isActive: e.is_active !== undefined ? (e.is_active as boolean) : true,
-            })))
-          }
-        }
-        if (data.recordsRes && (data.recordsRes as Record<string, unknown>).records) {
-          const dbRecords = (data.recordsRes as Record<string, unknown>).records as Record<string, unknown>[]
-          if (dbRecords && dbRecords.length > 0) {
-            setSavedRecords(dbRecords.map(r => ({
-              id: r.id as string,
-              month: r.month as string,
-              date: r.record_date as string,
-              batches: (r.batches_snapshot || []) as BatchConfig[],
-              config: (r.config_snapshot || {}) as FarmConfig,
-              notes: (r.notes || '') as string,
-              revenue: (r.revenue || 0) as number,
-              expenses: (r.expenses || 0) as number,
-              net: (r.net || 0) as number,
-            })))
-          }
-        }
-      }).catch(() => {})
-    }, 15000)
-    return () => clearInterval(interval)
+    if (!mounted || !isAuthenticated || !FARM_ID || !isSupabaseConfigured()) return
+
+    const channel = supabase
+      .channel('farm-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'batches', filter: `farm_id=eq.${FARM_ID}` }, () => {
+        // Reload batches from API when any change happens
+        fetch(`/api/batches?farm_id=${FARM_ID}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (!data?.batches) return
+            const dbBatches = data.batches as Record<string, unknown>[]
+            if (dbBatches.length > 0) {
+              setBatches(dbBatches.map(b => ({
+                id: b.batch_key as string || b.id as string,
+                name: b.name as string,
+                hens: b.hens as number,
+                layingRate: b.laying_rate as number,
+                isLaying: b.is_laying as boolean,
+                cycleMonth: b.cycle_month as number,
+                phase: b.phase as BatchConfig['phase'],
+              })))
+            }
+          })
+          .catch(() => {})
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'farms', filter: `id=eq.${FARM_ID}` }, () => {
+        // Reload config from API when farm config changes
+        fetch(`/api/config?farm_id=${FARM_ID}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (!data?.config) return
+            const dbConfig = data.config as Record<string, unknown>
+            if (Object.keys(dbConfig).length > 0) {
+              setConfig(prev => ({ ...prev, ...dbConfig, feedPhases: { ...DEFAULT_FEED, ...((dbConfig.feedPhases as Record<string, unknown>) || {}) } } as FarmConfig))
+            }
+          })
+          .catch(() => {})
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'structural_expenses', filter: `farm_id=eq.${FARM_ID}` }, () => {
+        // Reload structural expenses
+        fetch(`/api/structural-expenses?farm_id=${FARM_ID}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (!data?.expenses) return
+            const dbExpenses = data.expenses as Record<string, unknown>[]
+            if (dbExpenses.length > 0) {
+              setStructuralExpenses(dbExpenses.map(e => ({
+                id: e.id as string,
+                description: (e.description || '') as string,
+                amount: (e.amount || 0) as number,
+                frequency: (e.frequency || 'unico') as StructuralExpense['frequency'],
+                dateAdded: (e.created_at || '') as string,
+                isActive: e.is_active !== undefined ? (e.is_active as boolean) : true,
+              })))
+            }
+          })
+          .catch(() => {})
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [mounted, isAuthenticated])
 
   // ---- Handlers (Supabase-synced) ----
@@ -1028,27 +1017,8 @@ export default function Home() {
   // ================================================================
   // CALCULATIONS ENGINE (preserved exactly)
   // ================================================================
-  const [configVersion, setConfigVersion] = useState(0)
-  const [displayedCalcs, setDisplayedCalcs] = useState<ReturnType<typeof computeCalculations> | null>(null)
-
-  useEffect(() => { setConfigVersion(v => v + 1) }, [config, batches, structuralExpenses])
-
-  useEffect(() => {
-    if (!displayedCalcs) {
-      setDisplayedCalcs(computeCalculations(config, batches, structuralExpenses))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const liveCalcs = useMemo(() => computeCalculations(config, batches, structuralExpenses), [config, batches, structuralExpenses])
-  const [lastUpdateVersion, setLastUpdateVersion] = useState(0)
-  const hasPendingChanges = configVersion > lastUpdateVersion
-  const calculations = displayedCalcs || liveCalcs
-
-  const handleUpdateCalculations = useCallback(() => {
-    setDisplayedCalcs(computeCalculations(config, batches, structuralExpenses))
-    setLastUpdateVersion(configVersion)
-  }, [config, batches, structuralExpenses, configVersion])
+  // Calculations are always live — no manual refresh needed
+  const calculations = useMemo(() => computeCalculations(config, batches, structuralExpenses), [config, batches, structuralExpenses])
 
   // Urgent reminders — fetched from Supabase
   const [urgentReminderCount, setUrgentReminderCount] = useState(0)
@@ -1122,13 +1092,13 @@ export default function Home() {
   // ---- Selected batch ----
   const selectedBatch = selectedBatchId ? batches.find(b => b.id === selectedBatchId) : null
   const selectedCalc = selectedBatchId ? {
-    ...liveCalcs,
-    batchDetails: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId),
-    totalEggRevenue: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.eggRevenue, 0),
-    totalFeedCost: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.monthlyFeedCost, 0),
-    totalHens: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.hens, 0),
-    totalEggs: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.eggsPerMonth, 0),
-    layingBirds: liveCalcs.batchDetails.filter(b => b.id === selectedBatchId && b.isLaying).reduce((s, b) => s + b.hens, 0),
+    ...calculations,
+    batchDetails: calculations.batchDetails.filter(b => b.id === selectedBatchId),
+    totalEggRevenue: calculations.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.eggRevenue, 0),
+    totalFeedCost: calculations.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.monthlyFeedCost, 0),
+    totalHens: calculations.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.hens, 0),
+    totalEggs: calculations.batchDetails.filter(b => b.id === selectedBatchId).reduce((s, b) => s + b.eggsPerMonth, 0),
+    layingBirds: calculations.batchDetails.filter(b => b.id === selectedBatchId && b.isLaying).reduce((s, b) => s + b.hens, 0),
   } : null
 
   // ================================================================
@@ -1170,13 +1140,13 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs hidden sm:inline-flex">
                 <Activity className="w-3 h-3 mr-1" />
-                {liveCalcs.layingBatches}/{batches.length} postura
+                {calculations.layingBatches}/{batches.length} postura
               </Badge>
               <Badge variant="outline" className="text-xs hidden sm:inline-flex">
-                {fmtNum(liveCalcs.totalHens)} aves
+                {fmtNum(calculations.totalHens)} aves
               </Badge>
-              <Badge className={`text-xs ${liveCalcs.netProfit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {fmtRD(liveCalcs.netProfit)}/mes
+              <Badge className={`text-xs ${calculations.netProfit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                {fmtRD(calculations.netProfit)}/mes
               </Badge>
               {urgentReminderCount > 0 && (
                 <button onClick={() => setView('reminders')} className="relative cursor-pointer">
@@ -1314,48 +1284,6 @@ export default function Home() {
             {/* Weather Widget */}
             <WeatherWidget avgProduction={null} fmtNum={fmtNum} />
 
-            {/* Update Button */}
-            <div className={`flex items-center justify-between mb-6 p-3 rounded-xl bg-white border-2 border-dashed transition-all duration-300 ${
-              hasPendingChanges ? 'border-amber-400 bg-amber-50/50 shadow-sm' : 'border-green-300 bg-green-50/30'
-            }`}>
-              <div className="flex items-center gap-2.5">
-                {hasPendingChanges ? (
-                  <>
-                    <div className="relative">
-                      <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-                        <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      </div>
-                      <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-amber-800">Cambios pendientes</p>
-                      <p className="text-[11px] text-amber-600">Actualiza los numeros.</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                      <CheckCircle2 className="w-4 h-4 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-green-800">Calculos actualizados</p>
-                      <p className="text-[11px] text-green-600">Los numeros reflejan la configuracion actual.</p>
-                    </div>
-                  </>
-                )}
-              </div>
-              <Button
-                onClick={handleUpdateCalculations}
-                className={`shrink-0 font-semibold text-sm px-5 h-10 transition-all duration-200 ${
-                  hasPendingChanges ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md hover:shadow-lg' : 'bg-green-600 hover:bg-green-700 text-white'
-                }`}
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${hasPendingChanges ? 'animate-spin' : ''}`}
-                style={hasPendingChanges ? { animationDuration: '2s' } : {}} />
-                Actualizar
-              </Button>
-            </div>
-
             {/* Lot Cards Grid */}
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -1377,7 +1305,7 @@ export default function Home() {
                   <LotCard
                     key={batch.id}
                     batch={batch}
-                    calc={liveCalcs}
+                    calc={calculations}
                     config={config}
                     onClick={() => openLotDetail(batch.id)}
                     onDelete={() => handleDashboardDelete(batch)}
@@ -1581,7 +1509,7 @@ export default function Home() {
             <ReportsPanel
               batches={batches}
               config={config}
-              calculations={liveCalcs}
+              calculations={calculations}
               structuralExpenses={structuralExpenses}
               farmName="Granja Nidal"
             />
@@ -1612,7 +1540,7 @@ export default function Home() {
               </Button>
               <h2 className="text-lg font-bold text-stone-800">Vista Granja</h2>
             </div>
-            <FarmMapView batches={batches} config={config} calculations={liveCalcs} onShedClick={openLotDetail} />
+            <FarmMapView batches={batches} config={config} calculations={calculations} onShedClick={openLotDetail} />
           </div>
         )}
 
@@ -1639,7 +1567,7 @@ export default function Home() {
           <CashFlowPanel
             goBack={goBack}
             config={config}
-            calculations={liveCalcs}
+            calculations={calculations}
           />
         )}
 
@@ -1705,7 +1633,7 @@ export default function Home() {
         batches={batches}
         structuralExpenses={structuralExpenses}
         setStructuralExpenses={setStructuralExpenses}
-        liveCalcs={liveCalcs}
+        calculations={calculations}
         notes={notes}
         setNotes={setNotes}
         saveRecord={saveRecord}
