@@ -835,10 +835,72 @@ export default function Home() {
   useEffect(() => {
     if (!mounted || !isAuthenticated || !FARM_ID || !isSupabaseConfigured()) return
 
-    const channel = supabase
-      .channel('farm-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'batches', filter: `farm_id=eq.${FARM_ID}` }, () => {
-        // Reload batches from API when any change happens
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    try {
+      channel = supabase
+        .channel('farm-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'batches', filter: `farm_id=eq.${FARM_ID}` }, () => {
+          fetch(`/api/batches?farm_id=${FARM_ID}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (!data?.batches) return
+              const dbBatches = data.batches as Record<string, unknown>[]
+              if (dbBatches.length > 0) {
+                setBatches(dbBatches.map(b => ({
+                  id: b.batch_key as string || b.id as string,
+                  name: b.name as string,
+                  hens: b.hens as number,
+                  layingRate: b.laying_rate as number,
+                  isLaying: b.is_laying as boolean,
+                  cycleMonth: b.cycle_month as number,
+                  phase: b.phase as BatchConfig['phase'],
+                })))
+              }
+            })
+            .catch(() => {})
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'farms', filter: `id=eq.${FARM_ID}` }, () => {
+          fetch(`/api/config?farm_id=${FARM_ID}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (!data?.config) return
+              const dbConfig = data.config as Record<string, unknown>
+              if (Object.keys(dbConfig).length > 0) {
+                setConfig(prev => ({ ...prev, ...dbConfig, feedPhases: { ...DEFAULT_FEED, ...((dbConfig.feedPhases as Record<string, unknown>) || {}) } } as FarmConfig))
+              }
+            })
+            .catch(() => {})
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'structural_expenses', filter: `farm_id=eq.${FARM_ID}` }, () => {
+          fetch(`/api/structural-expenses?farm_id=${FARM_ID}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (!data?.expenses) return
+              const dbExpenses = data.expenses as Record<string, unknown>[]
+              if (dbExpenses.length > 0) {
+                setStructuralExpenses(dbExpenses.map(e => ({
+                  id: e.id as string,
+                  description: (e.description || '') as string,
+                  amount: (e.amount || 0) as number,
+                  frequency: (e.frequency || 'unico') as StructuralExpense['frequency'],
+                  dateAdded: (e.created_at || '') as string,
+                  isActive: e.is_active !== undefined ? (e.is_active as boolean) : true,
+                })))
+              }
+            })
+            .catch(() => {})
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') return
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            // Realtime unavailable — fall back to polling every 30s
+            console.warn('Realtime subscription failed, using polling fallback')
+          }
+        })
+    } catch (err) {
+      console.warn('Could not setup Realtime sync, using polling fallback:', err)
+      // Fallback: simple polling if Realtime fails
+      const interval = setInterval(() => {
         fetch(`/api/batches?farm_id=${FARM_ID}`)
           .then(r => r.ok ? r.json() : null)
           .then(data => {
@@ -857,44 +919,12 @@ export default function Home() {
             }
           })
           .catch(() => {})
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'farms', filter: `id=eq.${FARM_ID}` }, () => {
-        // Reload config from API when farm config changes
-        fetch(`/api/config?farm_id=${FARM_ID}`)
-          .then(r => r.ok ? r.json() : null)
-          .then(data => {
-            if (!data?.config) return
-            const dbConfig = data.config as Record<string, unknown>
-            if (Object.keys(dbConfig).length > 0) {
-              setConfig(prev => ({ ...prev, ...dbConfig, feedPhases: { ...DEFAULT_FEED, ...((dbConfig.feedPhases as Record<string, unknown>) || {}) } } as FarmConfig))
-            }
-          })
-          .catch(() => {})
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'structural_expenses', filter: `farm_id=eq.${FARM_ID}` }, () => {
-        // Reload structural expenses
-        fetch(`/api/structural-expenses?farm_id=${FARM_ID}`)
-          .then(r => r.ok ? r.json() : null)
-          .then(data => {
-            if (!data?.expenses) return
-            const dbExpenses = data.expenses as Record<string, unknown>[]
-            if (dbExpenses.length > 0) {
-              setStructuralExpenses(dbExpenses.map(e => ({
-                id: e.id as string,
-                description: (e.description || '') as string,
-                amount: (e.amount || 0) as number,
-                frequency: (e.frequency || 'unico') as StructuralExpense['frequency'],
-                dateAdded: (e.created_at || '') as string,
-                isActive: e.is_active !== undefined ? (e.is_active as boolean) : true,
-              })))
-            }
-          })
-          .catch(() => {})
-      })
-      .subscribe()
+      }, 30000)
+      return () => clearInterval(interval)
+    }
 
     return () => {
-      supabase.removeChannel(channel)
+      if (channel) supabase.removeChannel(channel)
     }
   }, [mounted, isAuthenticated])
 
@@ -1633,7 +1663,7 @@ export default function Home() {
         batches={batches}
         structuralExpenses={structuralExpenses}
         setStructuralExpenses={setStructuralExpenses}
-        calculations={calculations}
+        liveCalcs={calculations}
         notes={notes}
         setNotes={setNotes}
         saveRecord={saveRecord}
