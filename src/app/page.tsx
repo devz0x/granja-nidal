@@ -717,11 +717,11 @@ export default function Home() {
   useEffect(() => {
     if (mounted && isSupabaseConfigured() && isAuthenticated) {
       const setupVersion = localStorage.getItem('granja-nidal-setup-version')
-      if (setupVersion !== 'v5') {
+      if (setupVersion !== 'v6') {
         fetch('/api/admin/setup', { method: 'POST' })
           .then(r => r.json())
           .then(data => {
-            if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v5')
+            if (data.success) localStorage.setItem('granja-nidal-setup-version', 'v6')
           })
           .catch(() => {})
       }
