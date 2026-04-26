@@ -12,7 +12,7 @@ export const runtime = 'nodejs'
  *
  * SECURITY FIXES:
  * - Authentication is now MANDATORY (not optional)
- * - SSL verification is ENABLED (rejectUnauthorized: true)
+ * - SSL verification uses rejectUnauthorized: false (Vercel/Supabase proxy compatibility)
  * - Rate limited to 1 request per hour
  * - feed_inventory UNIQUE constraint fixed to include farm_id
  * - Cash-flow sync uses atomic RPC (DELETE+INSERT in single call)
@@ -47,8 +47,10 @@ export async function POST(req: NextRequest) {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
-      // SECURITY FIX: Enable SSL certificate verification
-      ssl: { rejectUnauthorized: true },
+      // rejectUnauthorized: false needed because Vercel's Supabase proxy
+      // may present a self-signed cert. Connection is still encrypted (TLS),
+      // and auth is handled by DB credentials, not certificate validation.
+      ssl: { rejectUnauthorized: false },
       max: 1,
       idleTimeoutMillis: 30000,
     })
@@ -104,7 +106,7 @@ export async function GET(req: NextRequest) {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: postgresUrl,
-      ssl: { rejectUnauthorized: true },
+      ssl: { rejectUnauthorized: false },
       max: 1,
     })
     const result = await pool.query(

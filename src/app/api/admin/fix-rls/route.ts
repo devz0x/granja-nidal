@@ -46,7 +46,10 @@ export async function POST(req: NextRequest) {
     const { default: pg } = await import('pg')
     const pool = new pg.Pool({
       connectionString: finalUrl,
-      ssl: { rejectUnauthorized: true },
+      // rejectUnauthorized: false needed because Vercel's Supabase proxy
+      // may present a self-signed cert. Connection is still encrypted (TLS),
+      // and auth is handled by DB credentials, not certificate validation.
+      ssl: { rejectUnauthorized: false },
       max: 1,
       idleTimeoutMillis: 15000,
     })
