@@ -21,6 +21,7 @@ import {
   ArrowUpRight, ArrowDownRight, Wallet, Landmark, Hammer, Calendar,
   Filter, CheckCircle2, CircleDollarSign, FileSpreadsheet, ClipboardList, Sparkles,
   RefreshCw, Loader2, ArrowRightLeft, Egg, Wheat, AlertTriangle, DollarSign, Info,
+  Pencil, Save, X,
 } from 'lucide-react'
 
 // ================================================================
@@ -189,6 +190,15 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
   const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0])
   const [formReference, setFormReference] = useState('')
 
+  // Edit state
+  const [editingEntry, setEditingEntry] = useState<CashFlowEntry | null>(null)
+  const [editFormType, setEditFormType] = useState<EntryType>('inflow')
+  const [editFormCategory, setEditFormCategory] = useState<CashFlowCategory>('venta_huevos')
+  const [editFormDescription, setEditFormDescription] = useState('')
+  const [editFormAmount, setEditFormAmount] = useState('')
+  const [editFormDate, setEditFormDate] = useState('')
+  const [editFormReference, setEditFormReference] = useState('')
+
   // ---- Fetch from Supabase on mount ----
   useEffect(() => {
     if (!FARM_ID) {
@@ -327,6 +337,69 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
         .finally(() => setSyncing(false))
     }
   }, [])
+
+  // ---- Edit Entry ----
+  const openEditDialog = useCallback((entry: CashFlowEntry) => {
+    setEditingEntry(entry)
+    setEditFormType(entry.type)
+    setEditFormCategory(entry.category)
+    setEditFormDescription(entry.description)
+    setEditFormAmount(String(entry.amount))
+    setEditFormDate(entry.date)
+    setEditFormReference(entry.reference || '')
+  }, [])
+
+  const handleEditTypeChange = useCallback((type: EntryType) => {
+    setEditFormType(type)
+    if (type === 'inflow') setEditFormCategory('venta_huevos')
+    else setEditFormCategory('alimento')
+  }, [])
+
+  const editCategoryOptions = useMemo(() => {
+    return Object.entries(CATEGORIES)
+      .filter(([_, info]) => info.defaultType === editFormType)
+      .map(([key, info]) => ({ value: key, label: `${info.icon} ${info.label}`, group: info.group }))
+  }, [editFormType])
+
+  const handleSaveEdit = useCallback(() => {
+    if (!editingEntry) return
+    const amount = parseFloat(editFormAmount)
+    if (!amount || amount <= 0 || !editFormDescription.trim()) return
+
+    const updated: CashFlowEntry = {
+      ...editingEntry,
+      date: editFormDate,
+      category: editFormCategory,
+      description: editFormDescription.trim(),
+      amount: Math.round(amount * 100) / 100,
+      type: editFormType,
+      reference: editFormReference.trim(),
+    }
+
+    // Optimistic update
+    setEntries(prev => prev.map(e => e.id === editingEntry.id ? updated : e))
+    setEditingEntry(null)
+
+    // Push to Supabase
+    if (FARM_ID) {
+      setSyncing(true)
+      fetch(`/api/cash-flow/${encodeURIComponent(editingEntry.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: updated.date,
+          category: updated.category,
+          description: updated.description,
+          amount: updated.amount,
+          type: updated.type,
+          reference: updated.reference,
+        }),
+      })
+        .then(() => {})
+        .catch(() => {})
+        .finally(() => setSyncing(false))
+    }
+  }, [editingEntry, editFormAmount, editFormCategory, editFormDate, editFormDescription, editFormType, editFormReference])
 
   const handleSaveBalance = useCallback(() => {
     const newBalances = { ...openingBalances, [selectedMonth]: Math.round(editBalanceValue * 100) / 100 }
@@ -1015,12 +1088,12 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
                     <TableHead className="text-[10px]">Descripcion</TableHead>
                     <TableHead className="text-[10px] text-right">Monto</TableHead>
                     <TableHead className="text-[10px] text-center">Ref.</TableHead>
-                    <TableHead className="text-[10px] w-8 print:hidden"></TableHead>
+                    <TableHead className="text-[10px] w-16 print:hidden"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredEntries.map(entry => (
-                    <TableRow key={entry.id}>
+                    <TableRow key={entry.id} className="hover:bg-stone-50 cursor-pointer group">
                       <TableCell className="text-[11px]">{entry.date}</TableCell>
                       <TableCell className="text-[11px]">
                         <Badge variant="outline" className={`text-[9px] ${entry.type === 'inflow' ? 'border-green-300 text-green-700 bg-green-50' : 'border-red-300 text-red-700 bg-red-50'}`}>
@@ -1031,16 +1104,22 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
                         <span className="mr-1">{CATEGORIES[entry.category]?.icon || ''}</span>
                         {CATEGORIES[entry.category]?.label || entry.category}
                       </TableCell>
-                      <TableCell className="text-[11px] max-w-[200px] truncate">{entry.description}</TableCell>
-                      <TableCell className={`text-[11px] text-right font-medium ${entry.type === 'inflow' ? 'text-green-700' : 'text-red-600'}`}>
+                      <TableCell className="text-[11px] max-w-[200px] truncate" onClick={() => openEditDialog(entry)}>{entry.description}</TableCell>
+                      <TableCell className={`text-[11px] text-right font-medium ${entry.type === 'inflow' ? 'text-green-700' : 'text-red-600'}`} onClick={() => openEditDialog(entry)}>
                         {entry.type === 'inflow' ? '+' : '-'}{fmtRD(entry.amount)}
                       </TableCell>
-                      <TableCell className="text-[11px] text-center text-stone-400">{entry.reference || '-'}</TableCell>
+                      <TableCell className="text-[11px] text-center text-stone-400" onClick={() => openEditDialog(entry)}>{entry.reference || '-'}</TableCell>
                       <TableCell className="text-right print:hidden">
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500"
-                          onClick={() => handleDeleteEntry(entry.id)}>
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-blue-600 hover:bg-blue-50"
+                            onClick={(e) => { e.stopPropagation(); openEditDialog(entry) }}>
+                            <Pencil className="w-3 h-3" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-red-500 hover:bg-red-50"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id) }}>
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1154,6 +1233,116 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
             >
               <Plus className="w-3 h-3 mr-1" />
               Agregar {formType === 'inflow' ? 'Entrada' : 'Salida'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ====================== EDIT ENTRY DIALOG ====================== */}
+      <Dialog open={!!editingEntry} onOpenChange={(open) => { if (!open) setEditingEntry(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Pencil className="w-4 h-4 text-blue-500" />
+              Editar Transaccion
+            </DialogTitle>
+            <DialogDescription className="text-xs">Modifica los datos del registro</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Type Toggle */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleEditTypeChange('inflow')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border-2 ${
+                  editFormType === 'inflow' ? 'border-green-500 bg-green-50 text-green-700' : 'border-stone-200 text-stone-500 hover:bg-stone-50'
+                }`}
+              >
+                <ArrowUpRight className="w-4 h-4 inline mr-1" /> Entrada
+              </button>
+              <button
+                onClick={() => handleEditTypeChange('outflow')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border-2 ${
+                  editFormType === 'outflow' ? 'border-red-500 bg-red-50 text-red-700' : 'border-stone-200 text-stone-500 hover:bg-stone-50'
+                }`}
+              >
+                <ArrowDownRight className="w-4 h-4 inline mr-1" /> Salida
+              </button>
+            </div>
+
+            {/* Category */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Categoria</Label>
+              <Select value={editFormCategory} onValueChange={v => setEditFormCategory(v as CashFlowCategory)}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {editCategoryOptions.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Descripcion</Label>
+              <Textarea
+                value={editFormDescription}
+                onChange={e => setEditFormDescription(e.target.value)}
+                placeholder="Descripcion del movimiento..."
+                className="text-xs min-h-[60px]"
+              />
+            </div>
+
+            {/* Amount + Date */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Monto (RD$)</Label>
+                <Input
+                  type="number"
+                  value={editFormAmount}
+                  onChange={e => setEditFormAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="h-9 text-sm font-mono"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Fecha</Label>
+                <Input
+                  type="date"
+                  value={editFormDate}
+                  onChange={e => setEditFormDate(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Reference */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Referencia (opcional)</Label>
+              <Input
+                value={editFormReference}
+                onChange={e => setEditFormReference(e.target.value)}
+                placeholder="Ej: Factura #001, Cheque..."
+                className="h-9 text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingEntry(null)} className="text-xs">Cancelar</Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={!editFormAmount || parseFloat(editFormAmount) <= 0 || !editFormDescription.trim()}
+              className="text-xs bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Save className="w-3 h-3 mr-1" /> Guardar Cambios
             </Button>
           </DialogFooter>
         </DialogContent>
