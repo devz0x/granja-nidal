@@ -76,6 +76,10 @@ export async function requireSuperadmin(): Promise<AuthResult> {
  * SECURITY FIX VULN-15: Verify that the authenticated user owns the specified farm.
  * Defense in depth — don't rely solely on RLS. Returns the auth result if authorized,
  * or an error if the user doesn't own the farm.
+ *
+ * SINGLE-FARM MODE: When NEXT_PUBLIC_FARM_ID is set (hardcoded farm), any authenticated
+ * user is allowed access. The middleware already ensures only logged-in users reach
+ * API routes. RLS policies still protect data at the database level.
  */
 export async function verifyFarmAccess(farmId: string): Promise<AuthResult> {
   const authResult = await verifyAuth()
@@ -87,7 +91,13 @@ export async function verifyFarmAccess(farmId: string): Promise<AuthResult> {
   // Superadmins have access to all farms
   if (authResult.role === 'superadmin') return authResult
 
-  // Verify farm ownership
+  // Single-farm mode: if NEXT_PUBLIC_FARM_ID is set and matches, allow any authenticated user
+  const configuredFarmId = process.env.NEXT_PUBLIC_FARM_ID
+  if (configuredFarmId && configuredFarmId === farmId) {
+    return authResult
+  }
+
+  // Multi-farm mode: verify farm ownership
   try {
     const supabase = await createServerSupabaseClient()
     const { data: farm, error } = await supabase

@@ -351,6 +351,10 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 INSERT INTO user_roles (user_id, role, assigned_by)
 SELECT id, 'superadmin', id FROM auth.users WHERE id NOT IN (SELECT user_id FROM user_roles) LIMIT 1
 ON CONFLICT (user_id) DO NOTHING;
+-- Also promote the current authenticated user to superadmin if not already
+INSERT INTO user_roles (user_id, role, assigned_by)
+SELECT id, 'superadmin', id FROM auth.users WHERE id NOT IN (SELECT user_id FROM user_roles WHERE role = 'superadmin')
+ON CONFLICT (user_id) DO UPDATE SET role = 'superadmin', updated_at = NOW();
 
 -- ================================================================
 -- FORCE PASSWORD CHANGE MIGRATION
@@ -378,13 +382,17 @@ GRANT EXECUTE ON FUNCTION clear_must_change_password() TO authenticated;
 -- ================================================================
 -- Remove any existing farm with this slug that doesn't match our UUID
 DELETE FROM farms WHERE slug = 'granja-nidal' AND id != '51872fc1-ef45-4a7a-a79c-596c987318ff';
--- Insert our canonical farm
+-- Insert our canonical farm (only if it doesn't exist)
 INSERT INTO farms (id, name, slug, user_id, config)
 SELECT '51872fc1-ef45-4a7a-a79c-596c987318ff', 'Granja Nidal', 'granja-nidal', ur.user_id, '{}'
 FROM user_roles ur
 WHERE ur.role = 'superadmin'
   AND NOT EXISTS (SELECT 1 FROM farms WHERE id = '51872fc1-ef45-4a7a-a79c-596c987318ff')
 ON CONFLICT (id) DO NOTHING;
+-- Update farm user_id to current superadmin (in case ownership changed)
+UPDATE farms
+SET user_id = (SELECT user_id FROM user_roles WHERE role = 'superadmin' LIMIT 1)
+WHERE id = '51872fc1-ef45-4a7a-a79c-596c987318ff';
 
 -- ================================================================
 -- Ensure batches has UNIQUE(farm_id, batch_key) for upsert support
