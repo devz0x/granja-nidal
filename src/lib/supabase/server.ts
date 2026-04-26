@@ -8,6 +8,9 @@ const _isConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseUrl.startsWit
 
 export const isSupabaseConfigured = (): boolean => _isConfigured
 
+/** The canonical farm ID for Granja Nidal (single-farm mode) */
+const GRANJA_NIDAL_FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || '51872fc1-ef45-4a7a-a79c-596c987318ff'
+
 /**
  * Create a Supabase client for server-side use (API routes, Server Components).
  * Reads auth cookies for session management and RLS context.
@@ -92,4 +95,44 @@ export const verifyServerAuth = async () => {
       ),
     }
   }
+}
+
+/**
+ * Ensure the canonical Granja Nidal farm exists in the `farms` table.
+ * If it doesn't exist, create it. If it exists but has no owner, set the owner.
+ * Uses the service_role client to bypass RLS.
+ * This is called before data operations to avoid foreign key constraint errors.
+ */
+export const ensureFarmExists = async (userId?: string): Promise<void> => {
+  const supabase = createServiceRoleClient()
+  const farmId = GRANJA_NIDAL_FARM_ID
+
+  // Check if farm exists
+  const { data: existingFarm } = await supabase
+    .from('farms')
+    .select('id')
+    .eq('id', farmId)
+    .single()
+
+  if (existingFarm) {
+    // Farm exists — update owner if userId provided and farm has no owner
+    if (userId) {
+      await supabase
+        .from('farms')
+        .update({ user_id: userId })
+        .eq('id', farmId)
+        .is('user_id', null)
+    }
+    return
+  }
+
+  // Farm doesn't exist — create it
+  await supabase.from('farms').insert({
+    id: farmId,
+    name: 'Granja Nidal',
+    slug: 'granja-nidal',
+    user_id: userId || null,
+    config: {},
+  })
+  console.log(`[ensureFarm] Created farm ${farmId}`)
 }

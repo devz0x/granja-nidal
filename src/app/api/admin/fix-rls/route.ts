@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth-api'
-import { createServiceRoleClient } from '@/lib/supabase/server'
+import { createServiceRoleClient, ensureFarmExists } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
 
@@ -140,6 +140,10 @@ export async function POST(req: NextRequest) {
     } else {
       diagnostics.user_role = 'superadmin (via service_role)'
     }
+
+    // Ensure the farm exists
+    await ensureFarmExists(authResult.user.id)
+    diagnostics.farm_ensured = 'OK'
 
     diagnostics.method = 'service_role'
 

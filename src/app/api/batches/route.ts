@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, ensureFarmExists, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
 import { validateBody, batchCreateSchema } from '@/lib/validators'
 
@@ -9,7 +9,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  // Use service_role client to bypass RLS for reads too
   const supabase = createServiceRoleClient()
 
   const { searchParams } = new URL(req.url)
@@ -42,18 +41,20 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  // Use service_role client to BYPASS RLS entirely
   const supabase = createServiceRoleClient()
 
-  // verifyFarmAccess already calls verifyAuth internally, so no need for double check
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
   }
 
+  // Verify auth first to get user ID
   const farmAuth = await verifyFarmAccess(farmId)
   if (farmAuth.error) return farmAuth.error
+
+  // Ensure the farm exists in the database (avoid foreign key errors)
+  await ensureFarmExists(farmAuth.user?.id)
 
   const body = await req.json()
 
@@ -92,12 +93,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  // Use service_role client to BYPASS RLS entirely
   const supabase = createServiceRoleClient()
 
   // Verify authentication
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
+  const authResult = await verifyAuth()
+  if (authResult.error) return authResult.error
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
@@ -109,6 +109,9 @@ export async function POST(req: NextRequest) {
   // SECURITY FIX VULN-15: Verify farm access
   const farmAuth = await verifyFarmAccess(farmId)
   if (farmAuth.error) return farmAuth.error
+
+  // Ensure the farm exists in the database (avoid foreign key errors)
+  await ensureFarmExists(authResult.user?.id)
 
   const body = await req.json()
 
