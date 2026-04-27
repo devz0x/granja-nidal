@@ -1,28 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { requireSuperadmin } from '@/lib/auth-api'
 
 // GET /api/admin/audit - Query audit log (superadmin only)
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
-  const { user, error: authError } = await verifyAuth()
+  const { error: authError } = await requireSuperadmin()
   if (authError) return authError
 
   const supabase = createServiceRoleClient()
-
-  // Only superadmins can view audit log
-  const { data: roleData } = await supabase
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', user?.id)
-    .single()
-
-  if (!roleData || roleData.role !== 'superadmin') {
-    return NextResponse.json({ error: 'Acceso denegado. Solo superadmins.' }, { status: 403 })
-  }
 
   const { searchParams } = new URL(req.url)
   const table = searchParams.get('table')

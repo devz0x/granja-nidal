@@ -12,9 +12,14 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Droplets, TrendingDown, Egg, Wheat, ClipboardCheck, AlertTriangle, CheckCircle2, Info, Plus, Trash2,
   Edit3, Save, X, Syringe, Heart, Calendar, Shield, Clipboard, ChevronDown, ChevronUp,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { getFarmId } from '@/lib/supabase'
 
 // ================================================================
@@ -167,6 +172,8 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
   const [vaccineFilterShed, setVaccineFilterShed] = useState<string>('all')
   const [showVaccineForm, setShowVaccineForm] = useState(false)
   const [cashFlowHint, setCashFlowHint] = useState(false)
+  const [showReplaceVaccineConfirm, setShowReplaceVaccineConfirm] = useState<{ type: 'default' | 'duplicate'; targetBatchId: string; sourceBatchId?: string; count: number; batchName: string } | null>(null)
+  const [showClearVaccineConfirm, setShowClearVaccineConfirm] = useState<{ batchId: string; batchName: string } | null>(null)
   const [newVaccine, setNewVaccine] = useState<Partial<VaccinationRecord>>({
     status: 'programada', via: 'Ocular', dosage: '', lotNumber: '', cycleNumber: 1, shedId: '',
   })
@@ -475,11 +482,8 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
     if (!batch || !farmId) return
     const existing = vaccinationRecords.filter(v => v.batchId === targetBatchId)
     if (existing.length > 0) {
-      if (!confirm(`El lote ${batch.name} ya tiene ${existing.length} vacunas registradas. Deseas reemplazarlas con el plan por defecto?`)) return
-      // Delete existing
-      for (const v of existing) {
-        await fetch(`/api/vaccinations/${v.id}`, { method: 'DELETE' }).catch(() => {})
-      }
+      setShowReplaceVaccineConfirm({ type: 'default', targetBatchId, count: existing.length, batchName: batch.name })
+      return
     }
     const newSchedule = getDefaultVaccineSchedule(targetBatchId, batch.name, 1)
     try {
@@ -488,24 +492,47 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           vaccinations: newSchedule.map(v => ({
-            batch_id: v.batchId,
-            shed_id: v.shedId,
-            cycle_number: v.cycleNumber,
-            vaccine_name: v.vaccineName,
-            date_applied: null,
-            age_weeks: v.ageWeeks,
-            next_dose: null,
-            applied_by: '',
-            via: v.via,
-            dosage: v.dosage,
-            lot_number: v.lotNumber,
-            status: v.status,
-            notes: v.notes,
+            batch_id: v.batchId, shed_id: v.shedId, cycle_number: v.cycleNumber,
+            vaccine_name: v.vaccineName, date_applied: null, age_weeks: v.ageWeeks,
+            next_dose: null, applied_by: '', via: v.via, dosage: v.dosage,
+            lot_number: v.lotNumber, status: v.status, notes: v.notes,
           })),
         }),
       })
       fetchAllData()
     } catch { /* ignore */ }
+  }
+
+  const confirmReplaceVaccine = async () => {
+    if (!showReplaceVaccineConfirm || !farmId) return
+    const { type, targetBatchId, sourceBatchId } = showReplaceVaccineConfirm
+    const existing = vaccinationRecords.filter(v => v.batchId === targetBatchId)
+    for (const v of existing) {
+      await fetch(`/api/vaccinations/${v.id}`, { method: 'DELETE' }).catch((err) => { console.error('Error al reemplazar vacunas:', err); toast.error('Error al reemplazar vacunas', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
+    }
+    setShowReplaceVaccineConfirm(null)
+    if (type === 'default') {
+      const batch = batches.find(b => b.id === targetBatchId)
+      if (!batch) return
+      const newSchedule = getDefaultVaccineSchedule(targetBatchId, batch.name, 1)
+      try {
+        await fetch(`/api/vaccinations?farm_id=${farmId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vaccinations: newSchedule.map(v => ({
+              batch_id: v.batchId, shed_id: v.shedId, cycle_number: v.cycleNumber,
+              vaccine_name: v.vaccineName, date_applied: null, age_weeks: v.ageWeeks,
+              next_dose: null, applied_by: '', via: v.via, dosage: v.dosage,
+              lot_number: v.lotNumber, status: v.status, notes: v.notes,
+            })),
+          }),
+        })
+        fetchAllData()
+      } catch { /* ignore */ }
+    } else if (type === 'duplicate' && sourceBatchId) {
+      await duplicateScheduleFromBatch(sourceBatchId, targetBatchId)
+    }
   }
 
   const duplicateScheduleFromBatch = async (sourceBatchId: string, targetBatchId: string) => {
@@ -514,10 +541,8 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
     const targetBatch = batches.find(b => b.id === targetBatchId)
     const existing = vaccinationRecords.filter(v => v.batchId === targetBatchId)
     if (existing.length > 0) {
-      if (!confirm(`El lote ${targetBatch?.name} ya tiene vacunas. Deseas reemplazarlas?`)) return
-      for (const v of existing) {
-        await fetch(`/api/vaccinations/${v.id}`, { method: 'DELETE' }).catch(() => {})
-      }
+      setShowReplaceVaccineConfirm({ type: 'duplicate', targetBatchId, sourceBatchId, count: existing.length, batchName: targetBatch?.name || '' })
+      return
     }
     try {
       await fetch(`/api/vaccinations?farm_id=${farmId}`, {
@@ -525,19 +550,11 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           vaccinations: sourceVacs.map(v => ({
-            batch_id: targetBatchId,
-            shed_id: targetBatch?.name || '',
-            cycle_number: v.cycleNumber,
-            vaccine_name: v.vaccineName,
-            date_applied: null,
-            age_weeks: v.ageWeeks,
-            next_dose: null,
-            applied_by: '',
-            via: v.via,
-            dosage: v.dosage,
-            lot_number: v.lotNumber,
-            status: 'programada',
-            notes: v.notes,
+            batch_id: targetBatchId, shed_id: targetBatch?.name || '',
+            cycle_number: v.cycleNumber, vaccine_name: v.vaccineName,
+            date_applied: null, age_weeks: v.ageWeeks, next_dose: null,
+            applied_by: '', via: v.via, dosage: v.dosage, lot_number: v.lotNumber,
+            status: 'programada', notes: v.notes,
           })),
         }),
       })
@@ -547,11 +564,17 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
 
   const clearVaccinesForBatch = async (targetBatchId: string) => {
     const batch = batches.find(b => b.id === targetBatchId)
-    if (!confirm(`Eliminar todas las vacunas del lote ${batch?.name}?`)) return
-    const toDelete = vaccinationRecords.filter(v => v.batchId === targetBatchId)
+    setShowClearVaccineConfirm({ batchId: targetBatchId, batchName: batch?.name || '' })
+  }
+
+  const confirmClearVaccines = async () => {
+    if (!showClearVaccineConfirm) return
+    const { batchId } = showClearVaccineConfirm
+    const toDelete = vaccinationRecords.filter(v => v.batchId === batchId)
     for (const v of toDelete) {
-      await fetch(`/api/vaccinations/${v.id}`, { method: 'DELETE' }).catch(() => {})
+      await fetch(`/api/vaccinations/${v.id}`, { method: 'DELETE' }).catch((err) => { console.error('Error al limpiar vacunas:', err); toast.error('Error al limpiar vacunas', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
     }
+    setShowClearVaccineConfirm(null)
     fetchAllData()
   }
 
@@ -1034,6 +1057,40 @@ export default function OperationsPanel({ batches, config, fmtRD, fmtNum, batchI
           </Table>
         </CardContent>
       </Card>
+      {/* Replace vaccine confirmation */}
+      <AlertDialog open={!!showReplaceVaccineConfirm} onOpenChange={(open) => { if (!open) setShowReplaceVaccineConfirm(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reemplazar vacunas</AlertDialogTitle>
+            <AlertDialogDescription>
+              El lote {showReplaceVaccineConfirm?.batchName} ya tiene {showReplaceVaccineConfirm?.count} vacunas registradas. Deseas reemplazarlas?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={confirmReplaceVaccine}>
+              Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Clear vaccine confirmation */}
+      <AlertDialog open={!!showClearVaccineConfirm} onOpenChange={(open) => { if (!open) setShowClearVaccineConfirm(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar vacunas</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminaran todas las vacunas del lote {showClearVaccineConfirm?.batchName}. Esta accion no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={confirmClearVaccines}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

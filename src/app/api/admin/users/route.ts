@@ -30,7 +30,7 @@ const ROLE_DESCRIPTIONS: Record<string, { label: string; description: string }> 
 // GET /api/admin/users — List all users with roles (superadmin only)
 export async function GET() {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const authResult = await requireSuperadmin()
@@ -68,7 +68,7 @@ export async function GET() {
 // PUT /api/admin/users — Update a user's role (superadmin only)
 export async function PUT(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const authResult = await requireSuperadmin()

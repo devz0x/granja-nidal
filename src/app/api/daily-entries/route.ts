@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
+import { verifyFarmAccess } from '@/lib/auth-api'
 import { validateBody, dailyEntrySchema, dailyEntryBatchSchema } from '@/lib/validators'
 
 // GET /api/daily-entries - with filters
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 1000) // Cap at 1000
 
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   let query = supabase
@@ -55,23 +55,18 @@ export async function GET(req: NextRequest) {
 // POST /api/daily-entries
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
 
-  // Verify authentication
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
-
+  // Verify authentication and farm access
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
-
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
-  // SECURITY FIX VULN-15: Verify farm access
   const farmAuth = await verifyFarmAccess(farmId)
   if (farmAuth.error) return farmAuth.error
 

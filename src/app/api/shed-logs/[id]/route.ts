@@ -9,7 +9,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const { error: authError } = await verifyAuth()
@@ -19,7 +19,7 @@ export async function PUT(
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const farmAuth = await verifyFarmAccess(farmId)
@@ -65,7 +65,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const { error: authError } = await verifyAuth()
@@ -75,7 +75,7 @@ export async function DELETE(
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const farmAuth = await verifyFarmAccess(farmId)

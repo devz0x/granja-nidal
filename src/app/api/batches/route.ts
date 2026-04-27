@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient, ensureFarmExists, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
+import { verifyFarmAccess } from '@/lib/auth-api'
 import { validateBody, batchCreateSchema } from '@/lib/validators'
 
 // GET /api/batches - Get all batches for a farm
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   // SECURITY FIX VULN-15: Verify farm access
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 // PUT /api/batches - Upsert a batch by batch_key (create or update in one call)
 export async function PUT(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
@@ -46,7 +46,7 @@ export async function PUT(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   // Verify auth first to get user ID
@@ -90,28 +90,20 @@ export async function PUT(req: NextRequest) {
 // POST /api/batches - Create a new batch
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
 
-  // Verify authentication
-  const authResult = await verifyAuth()
-  if (authResult.error) return authResult.error
-
+  // Verify authentication and farm access
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
-
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
-  // SECURITY FIX VULN-15: Verify farm access
   const farmAuth = await verifyFarmAccess(farmId)
   if (farmAuth.error) return farmAuth.error
-
-  // Ensure the farm exists in the database (avoid foreign key errors)
-  await ensureFarmExists(authResult.user?.id)
 
   const body = await req.json()
 

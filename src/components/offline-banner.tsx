@@ -1,9 +1,8 @@
 'use client'
 
 import { useOffline } from '@/hooks/use-offline'
-import { useSyncExternalStore } from 'react'
+import { useSyncExternalStore, useEffect, useRef } from 'react'
 import { WifiOff, RefreshCw, CheckCircle2 } from 'lucide-react'
-import { useEffect } from 'react'
 import { toast } from 'sonner'
 
 // Online status subscription for useSyncExternalStore
@@ -27,12 +26,15 @@ function getServerSnapshot() {
 export default function OfflineBanner() {
   const isOnline = useSyncExternalStore(subscribeToOnline, getOnlineSnapshot, getServerSnapshot)
   const { isSyncing, queueCount, syncQueue } = useOffline()
+  const queueCountRef = useRef(queueCount)
+  queueCountRef.current = queueCount
 
   // Show toast when coming back online
   useEffect(() => {
     const handleBackOnline = () => {
+      const currentQueueCount = queueCountRef.current
       toast.success('Conexion restablecida', {
-        description: queueCount > 0 ? `Sincronizando ${queueCount} cambios pendientes...` : 'Todos los datos estan actualizados.',
+        description: currentQueueCount > 0 ? `Sincronizando ${currentQueueCount} cambios pendientes...` : 'Todos los datos estan actualizados.',
         duration: 4000,
       })
     }

@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
     const windDirection = dirs[Math.round(windDir / 45) % 8] || 'NE'
 
     // 5-day forecast
-    const forecast = []
+    const forecast: Record<string, unknown>[] = []
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado']
     for (let i = 0; i < (daily.time?.length || 0); i++) {
       const date = new Date(daily.time[i])

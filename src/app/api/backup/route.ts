@@ -12,13 +12,13 @@ const DATA_TABLES = [
 // GET /api/backup?farm_id=xxx - Export all farm data as JSON
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const { error: authError } = await verifyFarmAccess(farmId)
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
 // POST /api/backup?farm_id=xxx - Import/restore data from backup JSON
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   // Only superadmins can import data
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const supabase = createServiceRoleClient()
@@ -142,10 +142,8 @@ export async function POST(req: NextRequest) {
     let errors = 0
 
     if (importMode === 'replace') {
-      // Clear existing data first
-      if (table !== 'farms') {
-        await supabase.from(table).delete().eq('farm_id', farmId)
-      }
+      // Clear existing data first (farms already skipped above)
+      await supabase.from(table).delete().eq('farm_id', farmId)
     }
 
     // Insert records

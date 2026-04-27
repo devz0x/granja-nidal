@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth, verifyFarmAccess } from '@/lib/auth-api'
+import { verifyFarmAccess } from '@/lib/auth-api'
 import { validateBody, monthSchema } from '@/lib/validators'
 
 /**
@@ -10,7 +10,7 @@ import { validateBody, monthSchema } from '@/lib/validators'
  */
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
@@ -262,13 +262,10 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
-
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   const month = searchParams.get('month')
@@ -283,9 +280,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Formato de mes invalido. Use YYYY-MM.' }, { status: 400 })
   }
 
-  // SECURITY FIX VULN-15: Verify farm access
-  const farmAuth = await verifyFarmAccess(farmId)
-  if (farmAuth.error) return farmAuth.error
+  // Verify farm access
+  const { error: authError } = await verifyFarmAccess(farmId)
+  if (authError) return authError
 
   const body = await req.json()
   const entries = body.entries as Array<{
@@ -296,7 +293,7 @@ export async function POST(req: NextRequest) {
   }>
 
   if (!entries || entries.length === 0) {
-    return NextResponse.json({ error: 'No entries provided' }, { status: 400 })
+    return NextResponse.json({ error: 'No se proporcionaron entradas' }, { status: 400 })
   }
 
   // Build date range
@@ -330,10 +327,10 @@ export async function POST(req: NextRequest) {
       // Fallback to separate operations if RPC doesn't exist yet
       console.warn('[cash-flow sync] RPC not available, using fallback:', rpcError.message)
 
-      // Fallback: separate delete + insert (with error handling)
-      const { error: deleteError } = await supabase
+      // Fallback: separate delete + insert — save deleted data for rollback
+      const { data: deletedEntries, error: deleteError } = await supabase
         .from('cash_flow_entries')
-        .delete()
+        .select('*')
         .eq('farm_id', farmId)
         .like('reference', 'auto-sync-%')
         .gte('date', dateFrom)
@@ -341,6 +338,21 @@ export async function POST(req: NextRequest) {
 
       if (deleteError) {
         return NextResponse.json({ error: deleteError.message }, { status: 500 })
+      }
+
+      // Store for rollback
+      const backupData = deletedEntries || []
+
+      const { error: deleteErr2 } = await supabase
+        .from('cash_flow_entries')
+        .delete()
+        .eq('farm_id', farmId)
+        .like('reference', 'auto-sync-%')
+        .gte('date', dateFrom)
+        .lte('date', dateTo)
+
+      if (deleteErr2) {
+        return NextResponse.json({ error: deleteErr2.message }, { status: 500 })
       }
 
       const insertRows = entries.map((entry, idx) => ({
@@ -360,6 +372,11 @@ export async function POST(req: NextRequest) {
         .select()
 
       if (insertError) {
+        // ROLLBACK: Re-insert the backup data to prevent data loss
+        console.error('[cash-flow sync] Insert failed, rolling back deleted entries:', insertError.message)
+        if (backupData.length > 0) {
+          await supabase.from('cash_flow_entries').upsert(backupData, { onConflict: 'id' })
+        }
         return NextResponse.json({ error: insertError.message }, { status: 500 })
       }
 

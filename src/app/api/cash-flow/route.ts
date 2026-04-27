@@ -7,7 +7,7 @@ import { validateBody, cashFlowEntrySchema, cashFlowBatchSchema } from '@/lib/va
 // GET /api/cash-flow?farm_id=xxx - Get all cash flow entries for a farm
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const { data, error } = await supabase
@@ -59,14 +59,14 @@ export async function GET(req: NextRequest) {
 // POST /api/cash-flow?farm_id=xxx - Create a new cash flow entry
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   // SECURITY: Rate limiting
   const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
   const rl = apiRateLimit(clientIp)
   if (!rl.success) {
-    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
+    return NextResponse.json({ error: 'Limite de peticiones excedido' }, { status: 429 })
   }
 
   const supabase = createServiceRoleClient()
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const { error: authError } = await verifyFarmAccess(farmId)
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
 
   // Support both single entry and array of entries
   const entries = Array.isArray(body) ? body : [body]
-  const results = []
+  const results: Record<string, unknown>[] = []
 
   for (const entry of entries) {
     const { data, error } = await supabase
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
 // PUT /api/cash-flow?farm_id=xxx - Update cash flow balances
 export async function PUT(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
@@ -140,7 +140,7 @@ export async function PUT(req: NextRequest) {
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const body = await req.json()
@@ -167,7 +167,7 @@ export async function PUT(req: NextRequest) {
 // DELETE /api/cash-flow?farm_id=xxx - Delete all cash flow entries for a farm
 export async function DELETE(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
@@ -180,7 +180,7 @@ export async function DELETE(req: NextRequest) {
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const { error } = await supabase

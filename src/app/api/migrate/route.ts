@@ -5,7 +5,7 @@ import { verifyAuth } from '@/lib/auth-api'
 // POST /api/migrate - Migrate all localStorage data to Supabase
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const { farm_id, config, batches, daily_entries, reminders, structural_expenses, monthly_records, feed_inventory, vaccinations } = body
 
   if (!farm_id) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const results: Record<string, { success: boolean; count: number; error?: string }> = {}

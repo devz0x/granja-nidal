@@ -21,6 +21,7 @@ import {
   ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent,
 } from '@/components/ui/chart'
 import type { ChartConfig } from '@/components/ui/chart'
+import { FARM_ID } from '@/lib/constants'
 
 // ================================================================
 // TYPES FOR REPORT DATA (KEEP EXACTLY AS IS)
@@ -175,8 +176,6 @@ function SmallInput({ label, value, onChange, suffix, className = '' }: { label:
 // ================================================================
 // DASHBOARD WITH CHARTS
 // ================================================================
-const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
-
 const revenueExpenseConfig: ChartConfig = {
   ingresos: { label: 'Ingresos', color: '#16a34a' },
   gastos: { label: 'Gastos', color: '#dc2626' },

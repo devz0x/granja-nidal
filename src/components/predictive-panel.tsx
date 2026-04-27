@@ -63,11 +63,11 @@ function fmtRD(value: number): string {
   }).format(value)
 }
 
+import { FARM_ID } from '@/lib/constants'
+
 function fmtNum(value: number): string {
   return new Intl.NumberFormat('es-DO').format(value)
 }
-
-const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
 
 export default function PredictivePanel({ goBack }: { goBack: () => void }) {
   const [data, setData] = useState<PredictionData | null>(null)

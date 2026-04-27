@@ -77,7 +77,7 @@ const nextConfig: NextConfig = {
   // Keep ignoreBuildErrors temporarily until all TypeScript errors are fixed
   // TODO: Remove once all type errors are resolved
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
 
   // Only allow specific image domains

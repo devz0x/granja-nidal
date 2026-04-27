@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { requireSuperadmin } from '@/lib/auth-api'
 import { createServiceRoleClient, ensureFarmExists } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -13,7 +13,8 @@ export const runtime = 'nodejs'
  * RLS is unnecessary — verifyAuth/verifyFarmAccess protect all routes.
  */
 export async function POST(req: NextRequest) {
-  const authResult = await verifyAuth()
+  // SECURITY: Require superadmin — this endpoint can disable RLS and promote users
+  const authResult = await requireSuperadmin()
   if (authResult.error) return authResult.error
   if (!authResult.user) {
     return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })

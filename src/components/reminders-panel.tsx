@@ -16,6 +16,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import {
@@ -24,7 +28,9 @@ import {
   Calendar, ChevronDown, ChevronUp, Filter, Search, Printer, RotateCcw, Eye,
   Bug, ClipboardCheck, Timer, ArrowUpDown, Sparkles,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { isSupabaseConfigured, getFarmId } from '@/lib/supabase'
+import { FARM_ID } from '@/lib/constants'
 
 // ================================================================
 // TYPES
@@ -196,7 +202,6 @@ function createEmptyReminder(): Reminder {
 // ================================================================
 // Supabase API helpers
 // ================================================================
-const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
 
 function mapReminderFromDB(r: Record<string, unknown>): Reminder {
   return {
@@ -257,6 +262,9 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
   const [showCompleted, setShowCompleted] = useState(false)
   const [printMode, setPrintMode] = useState(false)
   const [now, setNow] = useState(new Date())
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
+  const [showCompleteOverdueConfirm, setShowCompleteOverdueConfirm] = useState(false)
+  const [showClearOldConfirm, setShowClearOldConfirm] = useState(false)
 
   // Filters
   const [filterCategory, setFilterCategory] = useState<string>('all')
@@ -394,14 +402,16 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
   }
 
   const deleteReminder = async (id: string) => {
-    if (!confirm('¿Eliminar este recordatorio?')) return
     try {
       const res = await fetch(`/api/reminders/${id}`, { method: 'DELETE' })
       if (res.ok) {
         fetchReminders()
         if (editingId === id) cancelForm()
+        setShowDeleteConfirm(null)
       }
-    } catch { /* ignore */ }
+    } catch {
+      toast.error('Error al eliminar recordatorio')
+    }
   }
 
   const completeReminder = async (id: string) => {
@@ -450,14 +460,15 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
 
   const completeAllOverdue = async () => {
     const overdue = reminders.filter(r => r.status === 'pendiente' && daysBetween(today, r.dueDate) < 0)
-    if (overdue.length === 0 || !confirm(`¿Marcar ${overdue.length} recordatorio(s) vencido(s) como completados?`)) return
+    if (overdue.length === 0) return
+    setShowCompleteOverdueConfirm(false)
     const completedAt = new Date().toISOString()
     for (const r of overdue) {
       await fetch(`/api/reminders/${r.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'completada', completed_at: completedAt }),
-      }).catch(() => {})
+      }).catch((err) => { console.error('Error al completar vencidos:', err); toast.error('Error al completar recordatorios', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
     }
     fetchReminders()
   }
@@ -469,9 +480,10 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
       if (!r.completedAt) return true
       return new Date(r.completedAt) < thirtyDaysAgo
     }).map(r => r.id)
-    if (oldIds.length === 0 || !confirm(`¿Eliminar ${oldIds.length} recordatorio(s) completados/cancelados de hace mas de 30 dias?`)) return
+    if (oldIds.length === 0) return
+    setShowClearOldConfirm(false)
     for (const id of oldIds) {
-      await fetch(`/api/reminders/${id}`, { method: 'DELETE' }).catch(() => {})
+      await fetch(`/api/reminders/${id}`, { method: 'DELETE' }).catch((err) => { console.error('Error al limpiar recordatorio:', err); toast.error('Error al eliminar recordatorio', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
     }
     fetchReminders()
   }
@@ -531,7 +543,7 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
               <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-500 hover:text-blue-600 hover:bg-blue-50" onClick={() => snoozeReminder(r.id)} title="Posponer 24h"><Clock className="w-3.5 h-3.5" /></Button>
             </>)}
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-600 hover:bg-stone-50" onClick={() => openEditForm(r)} title="Editar"><Edit3 className="w-3.5 h-3.5" /></Button>
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-red-500 hover:bg-red-50" onClick={() => deleteReminder(r.id)} title="Eliminar"><Trash2 className="w-3 h-3" /></Button>
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-red-500 hover:bg-red-50" onClick={() => setShowDeleteConfirm(r.id)} title="Eliminar"><Trash2 className="w-3 h-3" /></Button>
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-400 hover:text-stone-600 hover:bg-stone-50 ml-auto" onClick={() => setExpandedId(isExpanded ? null : r.id)} title="Ver detalles">
               {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             </Button>
@@ -647,7 +659,7 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
           <CardContent className="p-3">
             <div className="flex items-center gap-1.5 mb-1"><ClipboardCheck className="w-3.5 h-3.5 text-violet-500" /><span className="text-[10px] font-medium text-stone-500">Vencidos</span></div>
             <p className="text-lg font-bold text-red-600">{stats.overdue}</p>
-            {stats.overdue > 0 && <button className="text-[9px] text-violet-600 hover:underline cursor-pointer" onClick={completeAllOverdue}>Completar todos →</button>}
+            {stats.overdue > 0 && <button className="text-[9px] text-violet-600 hover:underline cursor-pointer" onClick={() => setShowCompleteOverdueConfirm(true)}>Completar todos →</button>}
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-indigo-500 hidden lg:block">
@@ -705,8 +717,8 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={openAddForm} className="gap-1 text-xs h-8 bg-green-600 hover:bg-green-700 text-white"><Plus className="w-3.5 h-3.5" /> Agregar Recordatorio</Button>
             <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1 text-[10px] h-7"><Printer className="w-3 h-3" /> Imprimir</Button>
-            {stats.overdue > 0 && <Button variant="outline" size="sm" onClick={completeAllOverdue} className="gap-1 text-[10px] h-7 text-red-600 border-red-200 hover:bg-red-50"><CheckCircle2 className="w-3 h-3" /> Completar todo vencido</Button>}
-            <Button variant="outline" size="sm" onClick={clearOldCompleted} className="gap-1 text-[10px] h-7 text-stone-500"><Trash2 className="w-3 h-3" /> Limpiar completadas</Button>
+            {stats.overdue > 0 && <Button variant="outline" size="sm" onClick={() => setShowCompleteOverdueConfirm(true)} className="gap-1 text-[10px] h-7 text-red-600 border-red-200 hover:bg-red-50"><CheckCircle2 className="w-3 h-3" /> Completar todo vencido</Button>}
+            <Button variant="outline" size="sm" onClick={() => setShowClearOldConfirm(true)} className="gap-1 text-[10px] h-7 text-stone-500"><Trash2 className="w-3 h-3" /> Limpiar completadas</Button>
             <span className="ml-auto text-[10px] text-stone-400">{filteredReminders.length} resultado{filteredReminders.length !== 1 ? 's' : ''}</span>
           </div>
         </CardContent>
@@ -824,6 +836,57 @@ export default function RemindersPanel({ batches, config, fmtRD, fmtNum, batchId
           </CollapsibleContent>
         </Collapsible>
       )}
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!showDeleteConfirm} onOpenChange={(open) => { if (!open) setShowDeleteConfirm(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar recordatorio</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta accion no se puede deshacer. Se eliminara este recordatorio permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => { if (showDeleteConfirm) deleteReminder(showDeleteConfirm) }}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Complete all overdue confirmation */}
+      <AlertDialog open={showCompleteOverdueConfirm} onOpenChange={setShowCompleteOverdueConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Completar recordatorios vencidos</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se marcaran {stats.overdue} recordatorio(s) vencido(s) como completados. Deseas continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={completeAllOverdue}>
+              Completar todos
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Clear old completed confirmation */}
+      <AlertDialog open={showClearOldConfirm} onOpenChange={setShowClearOldConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Limpiar completadas antiguas</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminaran los recordatorios completados o cancelados de hace mas de 30 dias. Esta accion no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={clearOldCompleted}>
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

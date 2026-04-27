@@ -17,12 +17,18 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { toast } from 'sonner'
+import {
   Banknote, TrendingUp, TrendingDown, Plus, Trash2, Printer, ChevronLeft, ChevronDown, ChevronUp,
   ArrowUpRight, ArrowDownRight, Wallet, Landmark, Hammer, Calendar,
   Filter, CheckCircle2, CircleDollarSign, FileSpreadsheet, ClipboardList, Sparkles,
   RefreshCw, Loader2, ArrowRightLeft, Egg, Wheat, AlertTriangle, DollarSign, Info,
   Pencil, Save, X,
 } from 'lucide-react'
+import { FARM_ID } from '@/lib/constants'
 
 // ================================================================
 // TYPES
@@ -71,8 +77,6 @@ interface CashFlowEntry {
 // ================================================================
 // CONSTANTS
 // ================================================================
-const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
-
 const CATEGORIES: Record<CashFlowCategory, {
   label: string
   activity: ActivityType
@@ -170,6 +174,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
   const [openingBalances, setOpeningBalances] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
 
   const [selectedMonth, setSelectedMonth] = useState(() => getMonthKey(new Date()))
   const [showAddDialog, setShowAddDialog] = useState(false)
@@ -238,12 +243,16 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
   const [inlineEdit, setInlineEdit] = useState<{ entryId: string; field: 'date' | 'description' | 'amount' | 'category' } | null>(null)
   const [inlineValue, setInlineValue] = useState('')
   const inlineInputRef = useRef<HTMLInputElement>(null)
+  const inlineSelectRef = useRef<HTMLSelectElement>(null)
 
   // Focus inline input when set
   useEffect(() => {
-    if (inlineEdit && inlineInputRef.current) {
-      inlineInputRef.current.focus()
-      inlineInputRef.current.select()
+    const el = inlineEdit?.field === 'category' ? inlineSelectRef.current : inlineInputRef.current
+    if (inlineEdit && el) {
+      el.focus()
+      if (el instanceof HTMLInputElement) {
+        el.select()
+      }
     }
   }, [inlineEdit])
 
@@ -290,7 +299,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
         body: JSON.stringify(updates),
       })
         .then(() => {})
-        .catch(() => {})
+        .catch(() => { toast.error('Error al guardar cambio') })
         .finally(() => setSyncing(false))
     }
   }, [entries])
@@ -374,7 +383,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
         }),
       })
         .then(() => {})
-        .catch(() => {})
+        .catch((err) => { console.error('Error al guardar registro:', err); toast.error('Error al guardar registro', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
         .finally(() => setSyncing(false))
     }
   }, [formAmount, formCategory, formDate, formDescription, formType, formReference, resetForm])
@@ -388,7 +397,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
       setSyncing(true)
       fetch(`/api/cash-flow/${encodeURIComponent(id)}`, { method: 'DELETE' })
         .then(() => {})
-        .catch(() => {})
+        .catch(() => { toast.error('Error al eliminar transaccion') })
         .finally(() => setSyncing(false))
     }
   }, [])
@@ -451,7 +460,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
         }),
       })
         .then(() => {})
-        .catch(() => {})
+        .catch((err) => { console.error('Error al guardar cambios:', err); toast.error('Error al guardar cambios', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
         .finally(() => setSyncing(false))
     }
   }, [editingEntry, editFormAmount, editFormCategory, editFormDate, editFormDescription, editFormType, editFormReference])
@@ -470,7 +479,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
         body: JSON.stringify({ balances: newBalances }),
       })
         .then(() => {})
-        .catch(() => {})
+        .catch((err) => { console.error('Error al guardar balance:', err); toast.error('Error al guardar balance', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
         .finally(() => setSyncing(false))
     }
   }, [selectedMonth, editBalanceValue, openingBalances])
@@ -483,7 +492,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
       setSyncing(true)
       fetch(`/api/cash-flow?farm_id=${FARM_ID}`, { method: 'DELETE' })
         .then(() => {})
-        .catch(() => {})
+        .catch(() => { toast.error('Error al borrar transacciones') })
         .finally(() => setSyncing(false))
     }
   }, [])
@@ -707,7 +716,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
           type: e.type,
           reference: e.reference,
         }))),
-      }).catch(() => {})
+      }).catch((err) => { console.error('Error al auto-rellenar datos:', err); toast.error('Error al guardar datos estimados', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
     }
   }, [monthEntries.length, calculations, config])
 
@@ -1111,10 +1120,26 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
             </div>
             {entries.length > 0 && (
               <Button variant="outline" size="sm" className="text-[10px] h-7 text-red-500 print:hidden"
-                onClick={() => { if (confirm('Eliminar TODAS las transacciones de flujo de caja?')) handleDeleteAll() }}>
+                onClick={() => setShowDeleteAllConfirm(true)}>
                 <Trash2 className="w-3 h-3 mr-1" /> Borrar todo
               </Button>
             )}
+            <AlertDialog open={showDeleteAllConfirm} onOpenChange={setShowDeleteAllConfirm}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Eliminar todas las transacciones</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Esta accion no se puede deshacer. Se eliminaran todas las transacciones de flujo de caja.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => { handleDeleteAll(); setShowDeleteAllConfirm(false) }}>
+                    Eliminar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </CardHeader>
         <CardContent>
@@ -1177,7 +1202,7 @@ export default function CashFlowPanel({ goBack, config, calculations }: CashFlow
                       <TableCell className="text-[11px] p-0.5">
                         {inlineEdit?.entryId === entry.id && inlineEdit?.field === 'category' ? (
                           <select
-                            ref={inlineInputRef}
+                            ref={inlineSelectRef}
                             value={inlineValue}
                             onChange={e => { setInlineValue(e.target.value); saveInlineEdit(entry.id, 'category', e.target.value) }}
                             onBlur={() => cancelInlineEdit()}

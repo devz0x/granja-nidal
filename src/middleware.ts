@@ -67,7 +67,7 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith('/auth/')) {
     // SECURITY: Rate limit login attempts
     if (pathname === '/auth/login') {
-      const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.ip || 'unknown'
+      const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
       const rl = loginRateLimit(clientIp)
       if (!rl.success) {
         const loginUrl = new URL('/auth/login', req.url)
@@ -77,7 +77,7 @@ export async function middleware(req: NextRequest) {
 
     // Rate limit change-password page
     if (pathname === '/auth/change-password') {
-      const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.ip || 'unknown'
+      const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
       const rl = changePasswordRateLimit(clientIp)
       if (!rl.success) {
         return NextResponse.redirect(new URL('/auth/login', req.url))

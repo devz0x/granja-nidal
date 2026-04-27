@@ -20,7 +20,7 @@ import {
   Database, Calendar, HardDrive, AlertTriangle, CheckCircle2, FileSpreadsheet,
 } from 'lucide-react'
 
-const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
+import { FARM_ID } from '@/lib/constants'
 
 interface BackupEntry {
   date: string

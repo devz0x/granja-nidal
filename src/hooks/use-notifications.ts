@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
-const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
+import { FARM_ID } from '@/lib/constants'
 const CHECK_INTERVAL = 2 * 60 * 1000 // 2 minutes
 
 export interface NotificationItem {

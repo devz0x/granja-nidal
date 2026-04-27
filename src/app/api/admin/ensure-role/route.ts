@@ -11,7 +11,7 @@ import { verifyAuth } from '@/lib/auth-api'
  */
 export async function POST() {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ skipped: true, reason: 'Supabase not configured' })
+    return NextResponse.json({ skipped: true, reason: 'Supabase no configurado' })
   }
 
   const { user, error: authError } = await verifyAuth()

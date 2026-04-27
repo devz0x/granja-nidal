@@ -6,7 +6,7 @@ import { apiRateLimit } from '@/lib/rate-limit'
 // GET /api/inventory-movements — list movements with filters
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
 // POST /api/inventory-movements — create a new movement
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const authResult = await verifyAuth()
@@ -87,11 +87,11 @@ export async function POST(req: NextRequest) {
       farm_id: farmId,
       phase_key: m.phase_key,
       movement_type: m.movement_type,
-      quantity_kg: parseFloat(m.quantity_kg) || 0,
-      unit_price: parseFloat(m.unit_price) || 0,
-      supplier: m.supplier || '',
-      reference: m.reference || '',
-      notes: m.notes || '',
+      quantity_kg: parseFloat(String(m.quantity_kg)) || 0,
+      unit_price: parseFloat(String(m.unit_price)) || 0,
+      supplier: String(m.supplier || ''),
+      reference: String(m.reference || ''),
+      notes: String(m.notes || ''),
     }))
 
     const { data, error } = await supabase

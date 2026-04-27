@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyFarmAccess, verifyAuth } from '@/lib/auth-api'
+import { verifyFarmAccess } from '@/lib/auth-api'
 import { validateBody, shedLogSchema } from '@/lib/validators'
 
 // GET /api/shed-logs?farm_id=xxx&batch_id=xxx&activity_type=xxx&date_from=xxx&date_to=xxx
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const { error: authError } = await verifyFarmAccess(farmId)
@@ -64,16 +64,14 @@ export async function GET(req: NextRequest) {
 // POST /api/shed-logs?farm_id=xxx
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
-
+  // Verify authentication and farm access
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const farmAuth = await verifyFarmAccess(farmId)

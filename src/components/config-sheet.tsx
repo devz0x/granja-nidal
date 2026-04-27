@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet'
@@ -18,6 +19,7 @@ import {
   TrendingUp, TrendingDown, Save, Info, Zap,
   Download, Upload, FileJson, FileSpreadsheet, Database, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
 import {
   exportAllDataAsJSON, importAllDataFromJSON, exportDailyEntriesAsCSV,
   importDailyEntriesFromCSV, downloadJSON, downloadCSV, getDataSummary, getDataSummaryAsync,
@@ -494,8 +496,8 @@ export default function ConfigSheet({
               <CardDescription className="text-[11px]">Observaciones del mes actual</CardDescription>
             </CardHeader>
             <CardContent>
-              <textarea
-                className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              <Textarea
+                className="w-full min-h-[80px]"
                 placeholder="Observaciones del mes..."
                 value={notes}
                 onChange={e => setNotes(e.target.value)}

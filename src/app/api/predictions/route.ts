@@ -5,14 +5,14 @@ import { verifyFarmAccess } from '@/lib/auth-api'
 // GET /api/predictions?farm_id=xxx - Calculate predictions based on historical data
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido' }, { status: 400 })
   }
 
   const { error: authError } = await verifyFarmAccess(farmId)

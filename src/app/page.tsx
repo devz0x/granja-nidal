@@ -65,11 +65,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { LogOut, User, Loader2, Users, Package, Brain, Database, ClipboardList } from 'lucide-react'
 import { isSupabaseConfigured, getFarmId } from '@/lib/supabase'
+import { FARM_ID } from '@/lib/constants'
 
 // ================================================================
 // SUPABASE SYNC HELPERS (shared farm — single source of truth)
 // ================================================================
-const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
 
 async function syncFetchJSON(url: string): Promise<unknown> {
   const res = await fetch(url)
@@ -98,7 +98,7 @@ async function pushConfig(config: Record<string, unknown>) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ config }),
-  }).catch(() => {})
+  }).catch(() => { toast.error('Error al guardar configuracion') })
 }
 
 // Push a single batch to Supabase via upsert (single atomic call)
@@ -173,7 +173,7 @@ async function pushAllExpenses(expenses: Record<string, unknown>[]) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ expenses }),
-  }).catch(() => {})
+  }).catch(() => { toast.error('Error al guardar gastos estructurales') })
 }
 
 // Push a monthly record to Supabase
@@ -192,12 +192,12 @@ async function pushRecord(record: Record<string, unknown>) {
       expenses: record.expenses,
       net: record.net,
     }),
-  }).catch(() => {})
+  }).catch(() => { toast.error('Error al guardar registro mensual') })
 }
 
 // Delete a monthly record from Supabase
 async function deleteRecordFromAPI(id: string) {
-  fetch(`/api/monthly-records/${id}`, { method: 'DELETE' }).catch(() => {})
+  fetch(`/api/monthly-records/${id}`, { method: 'DELETE' }).catch(() => { toast.error('Error al eliminar registro') })
 }
 
 // ================================================================
@@ -215,6 +215,7 @@ function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord,
   setSavedRecords: (r: MonthlyRecord[]) => void
 }) {
   const [historyTab, setHistoryTab] = useState<'diario' | 'semanal' | 'mensual'>('diario')
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
 
   // Diario state — fetch from Supabase API
   const [dailyEntries, setDailyEntries] = useState<DailyEntry[]>([])
@@ -250,7 +251,7 @@ function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord,
         })
         setDailyEntries(mapped.sort((a, b) => b.date.localeCompare(a.date)))
       })
-      .catch(() => {})
+      .catch(() => { toast.error('Error al cargar entradas diarias') })
   }, [filterBatch, dateFrom, dateTo, savedRecords, batches])
 
   const handleDeleteEntry = (id: string) => {
@@ -285,7 +286,7 @@ function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord,
             })
         }
       })
-      .catch(() => {})
+      .catch((err) => { console.error('Error al eliminar entrada diaria:', err); toast.error('Error al eliminar entrada', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
   }
 
   // Semanal state — use the full dailyEntries from Supabase
@@ -597,10 +598,28 @@ function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord,
                   <CardDescription className="text-[11px]">Snapshots mensuales guardados manualmente ({savedRecords.length})</CardDescription>
                 </div>
                 {savedRecords.length > 0 && (
+                  <>
                   <Button variant="outline" size="sm" className="text-[10px] h-7 text-red-500"
-                    onClick={() => { if (confirm('Borrar todos los registros?')) setSavedRecords([]) }}>
+                    onClick={() => setShowDeleteAllConfirm(true)}>
                     <Trash2 className="w-3 h-3 mr-1" /> Borrar todo
                   </Button>
+                  <AlertDialog open={showDeleteAllConfirm} onOpenChange={setShowDeleteAllConfirm}>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Borrar todo</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Esta accion no se puede deshacer. Se eliminaran todos los registros guardados.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => { setSavedRecords([]); setShowDeleteAllConfirm(false) }}>
+                          Borrar
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  </>
                 )}
               </div>
             </CardHeader>
@@ -608,8 +627,8 @@ function HistoryView({ batches, savedRecords, expandedRecord, setExpandedRecord,
               {/* Notes */}
               <div className="mb-3">
                 <Label className="text-[10px] text-stone-500">Notas del Mes</Label>
-                <textarea
-                  className="w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                <Textarea
+                  className="w-full min-h-[60px]"
                   placeholder="Ej: Lote 2 con mortalidad elevada..."
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
@@ -824,7 +843,7 @@ export default function Home() {
           setStructuralExpenses(mapped)
         }
       }
-    }).catch(() => {})
+    }).catch((err) => { console.error('Error al cargar datos de la granja:', err); toast.error('Error al cargar datos', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
   }, [mounted, isAuthenticated])
 
   // ---- Real-time sync via Supabase Realtime ----
@@ -855,7 +874,7 @@ export default function Home() {
                   phase: b.phase as BatchConfig['phase'],
                 })))
               })
-              .catch(() => {})
+              .catch((err) => { console.error('Error al sincronizar lotes:', err); toast.error('Error al sincronizar lotes', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
           })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'farms', filter: `id=eq.${FARM_ID}` }, () => {
             fetch(`/api/config?farm_id=${FARM_ID}`)
@@ -867,7 +886,7 @@ export default function Home() {
                   setConfig(prev => ({ ...prev, ...dbConfig, feedPhases: { ...DEFAULT_FEED, ...((dbConfig.feedPhases as Record<string, unknown>) || {}) } } as FarmConfig))
                 }
               })
-              .catch(() => {})
+              .catch((err) => { console.error('Error al sincronizar configuracion:', err); toast.error('Error al sincronizar configuracion', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
           })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'structural_expenses', filter: `farm_id=eq.${FARM_ID}` }, () => {
             fetch(`/api/structural-expenses?farm_id=${FARM_ID}`)
@@ -886,7 +905,7 @@ export default function Home() {
                   })))
                 }
               })
-              .catch(() => {})
+              .catch((err) => { console.error('Error al sincronizar gastos:', err); toast.error('Error al sincronizar gastos', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
           })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_entries', filter: `farm_id=eq.${FARM_ID}` }, () => {
             // Trigger refetch for any open views that use daily entries
@@ -924,7 +943,7 @@ export default function Home() {
             })))
           }
         }
-      }).catch(() => {})
+      }).catch((err) => { console.error('Error en sincronizacion periodica:', err); toast.error('Error al sincronizar datos', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
     }, 10000)
 
     return () => {
@@ -956,7 +975,7 @@ export default function Home() {
         updated.isLaying = value === 'postura'
       }
       // Push to Supabase immediately
-      pushBatch(updated as unknown as Record<string, unknown>).catch(() => {})
+      pushBatch(updated as unknown as Record<string, unknown>).catch((err) => { console.error('Error al guardar lote:', err); toast.error('Error al guardar lote', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
       return updated
     }))
   }, [])
@@ -967,7 +986,7 @@ export default function Home() {
     const newName = `Galpon ${num}`
     const newBatch = {
       id: newId, name: newName, hens: config.hensPerBatch,
-      layingRate: config.baseLayingRate, isLaying: false, cycleMonth: 0, phase: 'pre_inicio',
+      layingRate: config.baseLayingRate, isLaying: false, cycleMonth: 0, phase: 'pre_inicio' as const,
     }
     setBatches(prev => [...prev, newBatch])
     // Push to Supabase and show feedback
@@ -994,9 +1013,9 @@ export default function Home() {
       fetch(`/api/daily-entries?farm_id=${FARM_ID}&batch_id=${id}`).then(r => r.json()).then(data => {
         const entries = data.entries || []
         for (const e of entries) {
-          fetch(`/api/daily-entries/${e.id}`, { method: 'DELETE' }).catch(() => {})
+          fetch(`/api/daily-entries/${e.id}`, { method: 'DELETE' }).catch((err) => { console.error('Error al eliminar entradas del lote:', err) })
         }
-      }).catch(() => {})
+      }).catch((err) => { console.error('Error al consultar entradas del lote:', err); toast.error('Error al eliminar datos del lote', { description: err instanceof Error ? err.message : 'Error de conexion' }) })
     }, 100)
     if (selectedBatchId === id) {
       setSelectedBatchId(null)

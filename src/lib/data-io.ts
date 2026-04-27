@@ -3,7 +3,7 @@
 // Granja Nidal
 // ================================================================
 
-const FARM_ID = process.env.NEXT_PUBLIC_FARM_ID || ''
+import { FARM_ID } from '@/lib/constants'
 
 // ================================================================
 // TYPES

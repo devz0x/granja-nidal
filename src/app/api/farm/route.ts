@@ -5,7 +5,7 @@ import { verifyAuth } from '@/lib/auth-api'
 // GET /api/farm - Get farm by ID or check connection
 export async function GET(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured', configured: false }, { status: 200 })
+    return NextResponse.json({ error: 'Supabase no configurado', configured: false }, { status: 200 })
   }
 
   const supabase = createServiceRoleClient()
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
-    return NextResponse.json({ error: 'farm_id is required', configured: true }, { status: 400 })
+    return NextResponse.json({ error: 'farm_id es requerido', configured: true }, { status: 400 })
   }
 
   const { data, error } = await supabase
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 // POST /api/farm - Create a new farm
 export async function POST(req: NextRequest) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 })
   }
 
   const supabase = createServiceRoleClient()

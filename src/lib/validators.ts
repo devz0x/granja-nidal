@@ -55,7 +55,7 @@ export const batchCreateSchema = z.object({
 
 // ---- Config ----
 export const configSchema = z.object({
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 })
 
 // ---- Sync ----

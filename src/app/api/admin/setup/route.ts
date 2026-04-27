@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { requireSuperadmin } from '@/lib/auth-api'
 import { setupRateLimit, apiRateLimit } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
@@ -18,8 +18,14 @@ export const runtime = 'nodejs'
  * - Cash-flow sync uses atomic RPC (DELETE+INSERT in single call)
  */
 export async function POST(req: NextRequest) {
-  // SECURITY FIX: Auth is now REQUIRED (was optional before)
-  const authResult = await verifyAuth()
+  // SECURITY: Require superadmin for DDL operations
+  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  const rl = setupRateLimit(clientIp)
+  if (!rl.success) {
+    return NextResponse.json({ error: 'Rate limit excedido. Intente en 1 hora.' }, { status: 429 })
+  }
+
+  const authResult = await requireSuperadmin()
   if (authResult.error) return authResult.error
 
   if (!authResult.user) {
@@ -85,10 +91,10 @@ export async function GET(req: NextRequest) {
   const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
   const rl = apiRateLimit(clientIp)
   if (!rl.success) {
-    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
+    return NextResponse.json({ error: 'Limite de peticiones excedido' }, { status: 429 })
   }
 
-  const authResult = await verifyAuth()
+  const authResult = await requireSuperadmin()
   if (authResult.error) return authResult.error
 
   let postgresUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL
