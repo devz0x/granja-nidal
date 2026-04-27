@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyAuth } from '@/lib/auth-api'
 
 /**
@@ -18,7 +18,7 @@ export async function POST() {
   if (authError) return authError
   if (!user) return NextResponse.json({ skipped: true, reason: 'Not authenticated' })
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   // Check if this user already has a role
   const { data: existingRole } = await supabase

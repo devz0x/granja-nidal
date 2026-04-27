@@ -243,37 +243,22 @@ CREATE POLICY "No direct writes to audit_log" ON audit_log FOR INSERT WITH CHECK
 CREATE POLICY "No direct updates to audit_log" ON audit_log FOR UPDATE USING (false) WITH CHECK (false);
 CREATE POLICY "No direct deletes to audit_log" ON audit_log FOR DELETE USING (false);
 
-DROP POLICY IF EXISTS "Users can manage their own farms" ON farms;
-DROP POLICY IF EXISTS "Users can insert their own farms" ON farms;
-CREATE POLICY "Users can manage their own farms" ON farms FOR ALL USING (auth.uid() = user_id OR is_superadmin(auth.uid())) WITH CHECK (auth.uid() = user_id OR is_superadmin(auth.uid()));
-
-DROP POLICY IF EXISTS "Farm owner access via farms" ON batches;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON batches;
-CREATE POLICY "Farm owner or superadmin access" ON batches FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS "Farm owner access via farms" ON daily_entries;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON daily_entries;
-CREATE POLICY "Farm owner or superadmin access" ON daily_entries FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS "Farm owner access via farms" ON reminders;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON reminders;
-CREATE POLICY "Farm owner or superadmin access" ON reminders FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS "Farm owner access via farms" ON structural_expenses;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON structural_expenses;
-CREATE POLICY "Farm owner or superadmin access" ON structural_expenses FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS "Farm owner access via farms" ON monthly_records;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON monthly_records;
-CREATE POLICY "Farm owner or superadmin access" ON monthly_records FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS "Farm owner access via farms" ON feed_inventory;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON feed_inventory;
-CREATE POLICY "Farm owner or superadmin access" ON feed_inventory FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
-
-DROP POLICY IF EXISTS "Farm owner access via farms" ON vaccinations;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON vaccinations;
-CREATE POLICY "Farm owner or superadmin access" ON vaccinations FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
+-- ================================================================
+-- DISABLE RLS on all data tables (service_role client bypasses RLS)
+-- Application-level auth (verifyAuth/verifyFarmAccess) protects all routes.
+-- RLS is only kept on user_roles and audit_log for admin-only access.
+-- ================================================================
+DO $$
+DECLARE
+  data_tables TEXT[] := ARRAY['farms','batches','daily_entries','reminders','structural_expenses','monthly_records','feed_inventory','vaccinations','cash_flow_entries','inventory_movements','invoices','shed_logs'];
+  tbl TEXT;
+BEGIN
+  FOREACH tbl IN ARRAY data_tables LOOP
+    EXECUTE format('ALTER TABLE %I DISABLE ROW LEVEL SECURITY', tbl);
+  END LOOP;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'RLS disable note: %', SQLERRM;
+END $$;
 
 -- ================================================================
 -- CASH FLOW ENTRIES TABLE
@@ -296,9 +281,7 @@ CREATE INDEX IF NOT EXISTS idx_cash_flow_entries_farm_id ON cash_flow_entries(fa
 CREATE INDEX IF NOT EXISTS idx_cash_flow_entries_date ON cash_flow_entries(date);
 CREATE INDEX IF NOT EXISTS idx_cash_flow_entries_entry_key ON cash_flow_entries(entry_key);
 
-ALTER TABLE cash_flow_entries ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON cash_flow_entries;
-CREATE POLICY "Farm owner or superadmin access" ON cash_flow_entries FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
+-- cash_flow_entries: RLS disabled (handled above in data_tables loop)
 
 -- Add cash_flow_balances JSONB column to farms table
 ALTER TABLE farms ADD COLUMN IF NOT EXISTS cash_flow_balances JSONB DEFAULT '{}';
@@ -456,9 +439,7 @@ CREATE INDEX IF NOT EXISTS idx_inventory_movements_phase_key ON inventory_moveme
 CREATE INDEX IF NOT EXISTS idx_inventory_movements_movement_type ON inventory_movements(movement_type);
 CREATE INDEX IF NOT EXISTS idx_inventory_movements_created_at ON inventory_movements(created_at);
 
-ALTER TABLE inventory_movements ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON inventory_movements;
-CREATE POLICY "Farm owner or superadmin access" ON inventory_movements FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
+-- inventory_movements: RLS disabled (handled above in data_tables loop)
 
 DROP TRIGGER IF EXISTS audit_inventory_movements_trigger ON inventory_movements;
 CREATE TRIGGER audit_inventory_movements_trigger AFTER INSERT OR UPDATE OR DELETE ON inventory_movements FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
@@ -488,9 +469,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_farm_id ON invoices(farm_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
 CREATE INDEX IF NOT EXISTS idx_invoices_number ON invoices(number);
 
-ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON invoices;
-CREATE POLICY "Farm owner or superadmin access" ON invoices FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
+-- invoices: RLS disabled (handled above in data_tables loop)
 
 -- ================================================================
 -- SHED LOGS TABLE
@@ -514,9 +493,7 @@ CREATE INDEX IF NOT EXISTS idx_shed_logs_batch_id ON shed_logs(batch_id);
 CREATE INDEX IF NOT EXISTS idx_shed_logs_activity_type ON shed_logs(activity_type);
 CREATE INDEX IF NOT EXISTS idx_shed_logs_performed_at ON shed_logs(performed_at);
 
-ALTER TABLE shed_logs ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Farm owner or superadmin access" ON shed_logs;
-CREATE POLICY "Farm owner or superadmin access" ON shed_logs FOR ALL USING (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR auth.uid() IS NOT NULL) WITH CHECK (farm_id IN (SELECT id FROM farms WHERE user_id = auth.uid()) OR is_superadmin(auth.uid()) OR auth.uid() IS NOT NULL);
+-- shed_logs: RLS disabled (handled above in data_tables loop)
 
 -- Audit triggers for new tables
 DROP TRIGGER IF EXISTS audit_invoices_trigger ON invoices;

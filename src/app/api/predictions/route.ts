@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { verifyFarmAccess } from '@/lib/auth-api'
 
 // GET /api/predictions?farm_id=xxx - Calculate predictions based on historical data
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const { error: authError } = await verifyFarmAccess(farmId)
   if (authError) return authError
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   // Fetch daily entries (last 90 days for moving averages)
   const ninetyDaysAgo = new Date()

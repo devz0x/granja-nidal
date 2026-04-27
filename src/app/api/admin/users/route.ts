@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/server'
+import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { requireSuperadmin } from '@/lib/auth-api'
 
 const VALID_ROLES = ['superadmin', 'admin', 'contador', 'operador', 'user'] as const
@@ -36,9 +36,9 @@ export async function GET() {
   const authResult = await requireSuperadmin()
   if (authResult.error) return authResult.error
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
-  // Get all users from auth (via admin API if available, otherwise from user_roles)
+  // Get all users from user_roles table
   const { data: roles, error } = await supabase
     .from('user_roles')
     .select('user_id, role, created_at')
@@ -47,19 +47,15 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Get user emails from auth metadata
-  // Since we can't easily list all auth users, we use the user_roles table
-  // and fetch profiles
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, email, full_name, avatar_url')
+  // Get user emails from auth.users via Supabase admin API (listUsers)
+  const { data: { users } } = await supabase.auth.admin.listUsers()
 
   const usersWithRoles = (roles || []).map((r: Record<string, unknown>) => {
-    const profile = (profiles || []).find((p: Record<string, unknown>) => p.id === r.user_id)
+    const authUser = users?.find((u: { id: string }) => u.id === r.user_id)
     return {
       user_id: r.user_id,
-      email: (profile?.email as string) || r.user_id,
-      full_name: (profile?.full_name as string) || '',
+      email: authUser?.email || r.user_id,
+      full_name: authUser?.user_metadata?.full_name || '',
       role: r.role,
       role_description: ROLE_DESCRIPTIONS[(r.role as string) || 'user']?.label || r.role,
       created_at: r.created_at,
@@ -91,8 +87,8 @@ export async function PUT(req: NextRequest) {
 
   // Don't allow removing the last superadmin
   if (role !== 'superadmin') {
-    const supabase = await createServerSupabaseClient()
-    const { data: superadmins } = await supabase
+    const checkSupabase = createServiceRoleClient()
+    const { data: superadmins } = await checkSupabase
       .from('user_roles')
       .select('user_id')
       .eq('role', 'superadmin')
@@ -102,7 +98,7 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  const supabase = await createServerSupabaseClient()
+  const supabase = createServiceRoleClient()
 
   // Upsert the role
   const { data, error } = await supabase
