@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   const table = searchParams.get('table')
   const operation = searchParams.get('operation')
   const userId = searchParams.get('user_id')
-  const limit = parseInt(searchParams.get('limit') || '100', 10)
+  const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 1000)
   const offset = parseInt(searchParams.get('offset') || '0', 10)
   const dateFrom = searchParams.get('from')
   const dateTo = searchParams.get('to')

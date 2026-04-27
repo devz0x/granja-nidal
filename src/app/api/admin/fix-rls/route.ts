@@ -64,20 +64,22 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Promote user to superadmin
+        // Promote user to superadmin (parameterized query)
         const userId = authResult.user.id
-        await client.query(`
-          INSERT INTO user_roles (user_id, role, assigned_by)
-          VALUES ('${userId}', 'superadmin', '${userId}')
-          ON CONFLICT (user_id) DO UPDATE SET role = 'superadmin', updated_at = NOW()
-        `)
+        await client.query(
+          `INSERT INTO user_roles (user_id, role, assigned_by)
+           VALUES ($1, 'superadmin', $2)
+           ON CONFLICT (user_id) DO UPDATE SET role = 'superadmin', updated_at = NOW()`,
+          [userId, userId]
+        )
         diagnostics.user_role = 'superadmin'
 
-        // Update farm owner
-        await client.query(`
-          UPDATE farms SET user_id = '${userId}'
-          WHERE id = '51872fc1-ef45-4a7a-a79c-596c987318ff'
-        `)
+        // Update farm owner (parameterized query)
+        await client.query(
+          `UPDATE farms SET user_id = $1
+           WHERE id = '51872fc1-ef45-4a7a-a79c-596c987318ff'`,
+          [userId]
+        )
         diagnostics.farm_owner_updated = 'OK'
 
         diagnostics.method = 'pg_direct'

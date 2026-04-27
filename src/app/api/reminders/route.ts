@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient, isSupabaseConfigured } from '@/lib/supabase/server'
-import { verifyAuth } from '@/lib/auth-api'
+import { verifyFarmAccess } from '@/lib/auth-api'
 
 // GET /api/reminders - with filters
 export async function GET(req: NextRequest) {
@@ -9,10 +9,6 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = createServiceRoleClient()
-
-  // Verify authentication
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
 
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
@@ -25,6 +21,10 @@ export async function GET(req: NextRequest) {
   if (!farmId) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
   }
+
+  // SECURITY: Verify farm access
+  const { error: authError } = await verifyFarmAccess(farmId)
+  if (authError) return authError
 
   let query = supabase
     .from('reminders')
@@ -68,16 +68,16 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceRoleClient()
 
-  // Verify authentication
-  const { error: authError } = await verifyAuth()
-  if (authError) return authError
-
   const { searchParams } = new URL(req.url)
   const farmId = searchParams.get('farm_id')
 
   if (!farmId) {
     return NextResponse.json({ error: 'farm_id is required' }, { status: 400 })
   }
+
+  // SECURITY: Verify farm access
+  const { error: authError } = await verifyFarmAccess(farmId)
+  if (authError) return authError
 
   const body = await req.json()
 

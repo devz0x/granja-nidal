@@ -115,8 +115,13 @@ export async function verifyFarmAccess(farmId: string): Promise<AuthResult> {
       }
     }
   } catch {
-    // If the query fails, allow through (RLS will still protect data)
-    // This prevents locking users out if there's a transient DB error
+    // SECURITY: Fail-closed — deny access if DB query fails
+    // service_role client bypasses RLS, so we cannot rely on RLS as fallback
+    return {
+      user: authResult.user,
+      error: NextResponse.json({ error: 'Error de verificacion de acceso.' }, { status: 403 }),
+      role: authResult.role,
+    }
   }
 
   return authResult
